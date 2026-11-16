@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ALAB: Awareness and Localized Alerts for Heat</title>
+<meta name="description" content="ALAB (Awareness and Localized Alerts for Heat): live heat index and 4H class decision aid based on DepEd Memorandum No. 064, s. 2026.">
+<meta name="theme-color" content="#1c2754">
+<meta name="color-scheme" content="light dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preload" href="icons/mark-96.webp" as="image">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ALAB">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+:root{
+  /* ALAB brand palette (sampled from the logo) */
+  --navy:#1c2754; --deep:#8c0104; --red:#c4120f; --orange:#fe7902; --amber:#fc9401; --yellow:#fdd903; --blue:#01adf1; --blue2:#0162b7;
+  --brand-grad:linear-gradient(135deg,#a50d0d 0%,#e8340c 45%,#fe7902 80%,#fc9401 100%);
+  --ink:var(--navy); --ink2:#4a5376; --muted:#767d98; --line:#ece4da; --paper:#fff8f1; --card:#fff; --chip:rgba(255,255,255,.8);
+  /* 4H levels (semantic, tuned to the brand) */
+  --hayo:#2e9d57; --hinay:#f2b200; --hinga:#fe7902; --hinto:#c4120f;
+  --hayo-bg:#e4f5ea; --hinay-bg:#fff4d2; --hinga-bg:#ffe6d1; --hinto-bg:#fde0de;
+  --lv:#d9d2c7; --lv-bg:var(--card);
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#eef1fb; --ink2:#c3c9e0; --muted:#8f97b8; --line:#2b3463; --paper:#0e1430; --card:#171f42; --chip:rgba(255,255,255,.08);
+        --hayo-bg:#11331f; --hinay-bg:#3a3008; --hinga-bg:#42240b; --hinto-bg:#461313; --lv:#3a4475}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(24px + env(safe-area-inset-bottom)) env(safe-area-inset-left)}
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--yellow),var(--amber),var(--orange),var(--red),var(--deep) 80%,var(--blue2) 90%,var(--blue));z-index:40}
+body[data-l="hayo"]{--lv:var(--hayo);--lv-bg:var(--hayo-bg)}
+body[data-l="hinay"]{--lv:var(--hinay);--lv-bg:var(--hinay-bg)}
+body[data-l="hinga"]{--lv:var(--hinga);--lv-bg:var(--hinga-bg)}
+body[data-l="hinto"]{--lv:var(--hinto);--lv-bg:var(--hinto-bg)}
+.wrap{max-width:520px;margin:0 auto;padding:12px 14px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+a{color:var(--blue2)} @media (prefers-color-scheme:dark){a{color:#5cc8f7}}
+
+/* Brand bar */
+.bar{display:flex;align-items:center;gap:10px;padding:8px 2px 10px}
+.mark{width:42px;height:42px;border-radius:12px;background:#fff;object-fit:contain;flex:none;box-shadow:0 1px 3px rgba(28,39,84,.15)}
+.word{font-weight:900;font-size:22px;letter-spacing:.02em;line-height:1;background:var(--brand-grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.bar .sub{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink2);font-weight:700;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{margin-left:auto;width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;flex:none}
+.iconbtn svg{width:20px;height:20px}
+
+.loc{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:9px 13px;font-size:13.5px;width:100%;text-align:left}
+.loc .pulse{width:9px;height:9px;border-radius:50%;background:#aab;flex:none;position:relative}
+.loc.live .pulse{background:var(--blue)}
+.loc.live .pulse::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--blue);animation:p 1.8s ease-out infinite}
+.loc.approx .pulse{background:var(--amber)}
+@keyframes p{from{transform:scale(.4);opacity:1}to{transform:scale(1.4);opacity:0}}
+@media (prefers-reduced-motion:reduce){.loc.live .pulse::after{animation:none}.gauge .needle{transition:none!important}}
+.loc b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.loc .acc{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
+
+.hero{margin-top:12px;background:var(--lv-bg);border:2px solid var(--lv);border-radius:22px;padding:14px 16px 16px;transition:background .5s,border-color .5s}
+.gauge{display:block;width:100%;max-width:330px;margin:0 auto}
+.gauge .needle{transition:transform 1s cubic-bezier(.3,1.4,.5,1);transform-origin:160px 160px}
+.gauge .ink{fill:var(--ink)} .gauge .ink2{fill:var(--ink2)} .gauge .mut{fill:var(--muted)}
+.gauge .pin{fill:var(--card);stroke:var(--ink)} .gauge .tri{fill:var(--ink)}
+.lvl{text-align:center;margin-top:-4px}
+.lvl .name{font-size:clamp(38px,12vw,48px);font-weight:900;letter-spacing:.03em;line-height:1}
+.lvl .tag{font-size:14px;font-weight:650;color:var(--ink2);margin-top:4px}
+.say{font-size:17px;font-weight:750;text-align:center;margin:12px 4px 10px;line-height:1.3}
+.chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.chips span{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600}
+.warn[hidden]{display:none}
+.warn{margin:10px auto 0;display:block;width:fit-content;background:var(--deep);color:#fff;border-radius:999px;padding:4px 12px;font-size:12.5px;font-weight:700}
+.note{margin-top:12px;font-size:12.5px;color:var(--ink2);text-align:center}
+.status{display:flex;align-items:center;gap:8px;width:100%;border:0;border-radius:12px;padding:7px 10px;margin:0 0 6px;font-size:12.5px;font-weight:700;text-align:left;background:var(--chip);color:var(--ink)}
+.status .dot{width:10px;height:10px;border-radius:50%;flex:none;position:relative;background:#9aa0b4}
+.status .tag{font-size:11px;font-weight:900;letter-spacing:.1em;padding:2px 7px;border-radius:6px;color:#fff;background:#9aa0b4;flex:none}
+.status .msg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status .nx{margin-left:auto;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.status[data-s="verified"] .dot,.status[data-s="verified"] .tag{background:#1f9d55}
+.status[data-s="live"] .dot,.status[data-s="live"] .tag{background:var(--blue2)}
+.status[data-s="measured"] .dot,.status[data-s="measured"] .tag{background:#1f9d55}
+.status[data-s="updating"] .dot,.status[data-s="updating"] .tag{background:var(--amber)}
+.status[data-s="stale"] .dot,.status[data-s="stale"] .tag{background:var(--amber)}
+.status[data-s="offline"] .dot,.status[data-s="offline"] .tag{background:#6b7280}
+.status[data-s="verified"] .dot::after,.status[data-s="live"] .dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid currentColor;color:inherit;animation:p 1.8s ease-out infinite}
+.status[data-s="verified"] .dot::after{border-color:#1f9d55}.status[data-s="live"] .dot::after{border-color:var(--blue2)}
+@media (prefers-reduced-motion:reduce){.status .dot::after{animation:none!important}}
+.acronym{font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--ink2);margin:10px 0 0}
+.acronym b{color:var(--red)}
+.tri{margin-top:12px;background:var(--chip);border:1px solid var(--line);border-radius:14px;padding:10px 12px;text-align:left}
+.tri[hidden]{display:none}
+.tri h4{margin:0 0 6px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.leg{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:2px 8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.leg:first-of-type{border-top:0}
+.leg .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--paper);color:var(--red)}
+.leg .ic svg{width:16px;height:16px}
+.leg .lt{min-width:0;font-size:13px;line-height:1.25}.leg .lt small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.leg .lv{text-align:right;font-size:13px;white-space:nowrap}.leg .lv b{font-size:16px;margin-right:4px;font-variant-numeric:tabular-nums}
+.leg .wb{grid-column:2 / 4;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.leg .wb i{display:block;height:100%;background:var(--brand-grad)}
+.leg.off{opacity:.55}.leg.off .wb{display:none}
+.leg button{all:unset;cursor:pointer;color:var(--blue2);font-weight:700}
+.agree{margin-top:8px;font-size:13px;font-weight:700;padding:7px 10px;border-radius:10px}
+.agree.ok{background:rgba(31,157,85,.12);color:#1b7a43}.agree.split{background:rgba(252,148,1,.15);color:#8a4b00}.agree.bad{background:rgba(196,18,15,.12);color:var(--red)}
+@media (prefers-color-scheme:dark){.agree.ok{color:#5fd193}.agree.split{color:#ffc266}.agree.bad{color:#ff7a70}}
+.acc-btn{display:flex;align-items:center;gap:8px;margin:12px auto 0;background:var(--chip);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13px;text-align:left;width:100%}
+.acc-btn .bars{display:flex;gap:2px;align-items:flex-end;flex:none}
+.acc-btn .bars i{width:5px;border-radius:2px;background:#cfd3dc}
+.acc-btn .bars i:nth-child(1){height:7px}.acc-btn .bars i:nth-child(2){height:11px}.acc-btn .bars i:nth-child(3){height:15px}
+.acc-btn[data-q="3"] .bars i{background:var(--blue)}
+.acc-btn[data-q="2"] .bars i:nth-child(-n+2){background:var(--amber)}
+.acc-btn[data-q="1"] .bars i:nth-child(1){background:var(--red)}
+.acc-btn .chev{margin-left:auto;color:var(--muted)}
+
+.src{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.src button{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:10px 6px 9px;text-align:center;font-size:12.5px;font-weight:700;color:var(--ink2)}
+.src button svg{display:block;margin:0 auto 4px;width:22px;height:22px}
+.src button small{display:block;font-weight:600;color:var(--muted);font-size:11px;margin-top:1px}
+.src button.on{border-color:var(--orange);color:var(--ink);box-shadow:0 0 0 2px var(--orange) inset}
+.src button.on svg{stroke:var(--red)}
+.src button.dis{opacity:.5}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:9px 11px;min-width:0}
+.stat .k{font-size:11.5px;color:var(--muted);font-weight:650}
+.stat .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.stat .v small{font-size:12px;color:var(--ink2);font-weight:650}
+.upd{font-size:12px;color:var(--muted);margin:8px 2px 0;display:flex;justify-content:space-between;gap:8px}
+.upd button{background:none;border:0;color:var(--blue2);font-weight:700;padding:0;font-size:12px}
+@media (prefers-color-scheme:dark){.upd button{color:#5cc8f7}}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;margin-top:12px}
+.card h2{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.hours{display:flex;gap:5px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.hours::-webkit-scrollbar{display:none}
+.hr{flex:0 0 48px;border-radius:10px;padding:7px 0 6px;text-align:center;font-size:11px;border:2px solid transparent;background:#eee}
+.hr b{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+.hr.hayo{background:var(--hayo-bg)}.hr.hinay{background:var(--hinay-bg)}.hr.hinga{background:var(--hinga-bg)}.hr.hinto{background:var(--hinto-bg)}
+.hr.now{border-color:var(--ink)} .hr.sel{border-color:var(--blue)}
+.hourinfo{font-size:13px;color:var(--ink2);margin-top:6px;min-height:19px}
+
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.btn{border:0;border-radius:14px;padding:13px 12px;font-weight:800;background:var(--brand-grad);color:#fff;box-shadow:0 2px 8px rgba(196,18,15,.25)}
+.btn.sec{background:var(--card);color:var(--ink);border:1.5px solid var(--line);box-shadow:none}
+.btn.big{width:100%;padding:16px;font-size:16px}
+.btn:disabled{opacity:.5}
+.foot{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:14px;text-align:center}
+.banner{background:#fff3d6;color:#5a3d00;border:1px solid #f3cf72;border-radius:12px;padding:10px 12px;font-size:13px;margin-top:10px}
+
+.start{display:none;text-align:center;padding:18px 8px 30px}
+.start.show{display:block}
+.start img{width:min(220px,58vw);height:auto;border-radius:28px;box-shadow:0 6px 24px rgba(196,18,15,.18)}
+.start h2{font-size:23px;margin:16px 0 6px}
+.start p{color:var(--ink2);margin:0 0 18px}
+.start ul{text-align:left;font-size:14px;color:var(--ink2);margin:0 auto 20px;max-width:360px;padding-left:20px}
+#app.hide{display:none}
+
+@media (max-width:359px){.stats{grid-template-columns:1fr 1fr}.stat:last-child{grid-column:1 / -1}.src button{font-size:11.5px}.bar .sub{letter-spacing:.06em}}
+@media (min-width:900px){
+  .wrap{max-width:1060px;padding:18px 24px}
+  #app:not(.hide){display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:0 22px;align-items:start}
+  .gauge{max-width:380px}
+  .lvl .name{font-size:58px}
+}
+@media (min-width:1500px){html{font-size:17px}.wrap{max-width:1320px}.gauge{max-width:460px}.lvl .name{font-size:72px}.say{font-size:21px}}
+
+/* Sheets */
+.scrim{position:fixed;inset:0;background:rgba(10,15,40,.5);opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
+.scrim.show{opacity:1;pointer-events:auto}
+.sheet{visibility:hidden;position:fixed;left:0;right:0;bottom:0;max-height:88vh;overflow:auto;overscroll-behavior:contain;background:var(--card);color:var(--ink);border-radius:22px 22px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .25s ease,visibility 0s .25s;z-index:21;max-width:560px;margin:0 auto}
+.sheet.show{transform:none;visibility:visible;transition:transform .25s ease}
+@media (min-width:900px){.sheet{bottom:auto;top:50%;border-radius:22px;transform:translateY(-40%);opacity:0;transition:opacity .2s,transform .2s,visibility 0s .2s}.sheet.show{transform:translateY(-50%);opacity:1;transition:opacity .2s,transform .2s}}
+.sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px;border:0;padding:0;display:block}
+.sheet h3{margin:0 0 4px;font-size:18px}
+.sheet p{margin:4px 0 10px;color:var(--ink2);font-size:13.5px}
+label{display:block;font-size:12.5px;font-weight:750;color:var(--ink2);margin:10px 0 4px}
+input,select{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--paper);color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.seg button{border:0;background:var(--card);padding:9px 16px;font-weight:750;color:var(--ink2)}
+.seg button.on{background:var(--navy);color:#fff}
+.prev{background:var(--paper);border-radius:12px;padding:10px 12px;font-size:14px;margin-top:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.list .it{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.list .it .t{flex:1;min-width:0}
+.pill{display:inline-block;border-radius:999px;padding:2px 9px;font-weight:800;font-size:12px;white-space:nowrap}
+.pill.hayo{background:var(--hayo-bg);color:var(--hayo)}.pill.hinay{background:var(--hinay-bg);color:#9a6f00}.pill.hinga{background:var(--hinga-bg);color:#b35100}.pill.hinto{background:var(--hinto-bg);color:var(--red)}
+@media (prefers-color-scheme:dark){.pill.hinay{color:var(--hinay)}.pill.hinga{color:var(--hinga)}.pill.hinto{color:#ff6b5e}}
+.x{border:0;background:var(--paper);border-radius:9px;width:32px;height:32px;flex:none}
+.switch{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
+.switch input{width:auto;transform:scale(1.3);accent-color:var(--red)}
+.results button{display:block;width:100%;text-align:left;background:var(--card);border:0;border-bottom:1px solid var(--line);padding:10px 4px}
+table.t{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+table.t td,table.t th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
+table.t th{font-size:11.5px;color:var(--muted);text-transform:uppercase}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:10px 16px;border-radius:12px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:30;max-width:92vw}
+.toast.show{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body data-l="none">
+<div class="wrap">
+  <div class="bar">
+    <img class="mark" src="icons/mark-96.webp" width="42" height="42" alt="">
+    <div style="min-width:0"><div class="word">ALAB</div><div class="sub" id="school">Heat Index Checker</div></div>
+    <button class="iconbtn" id="openSettings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
+  </div>
+
+  <div class="start" id="start">
+    <img src="icons/logo-360.webp" width="360" height="360" alt="ALAB Heat Index Checker">
+    <h2>Check the heat. Get the 4H call.</h2>
+    <p class="acronym"><b>A</b>wareness and <b>L</b>ocalized <b>A</b>lerts for <b>H</b>eat</p>
+    <p>For DepEd schools under Memorandum No. 064, s. 2026. Works on any phone, tablet or laptop.</p>
+    <ul>
+      <li>Finds where you are (GPS, Wi-Fi or network)</li>
+      <li>Combines up to <b>7 weather models</b> and checks them against <b>nearby weather stations</b></li>
+      <li>One thermometer reading tunes it to your <b>classroom</b> for the rest of the day</li>
+    </ul>
+    <button class="btn big" id="startBtn">Start live monitoring</button>
+    <p style="margin-top:12px;font-size:12.5px">Prefer not to share location? <a href="#" id="startManual">Pick your city instead</a></p>
+  </div>
+
+  <div id="app" class="hide">
+    <div class="colA">
+      <button class="loc" id="locPill"><span class="pulse"></span><b id="locName">Finding your location…</b><span class="acc" id="locAcc"></span></button>
+      <div id="envNote"></div><div id="banner"></div>
+      <div class="hero">
+        <button class="status" id="status" data-s="updating" aria-live="polite"><span class="dot"></span><span class="tag" id="stTag">…</span><span class="msg" id="stMsg">Connecting…</span><span class="nx" id="stNext"></span></button>
+        <svg class="gauge" viewBox="0 0 320 185" aria-hidden="true">
+          <g id="arcs"></g>
+          <g class="needle" id="needle"><path class="tri" d="M160 22 L150 4 L170 4 Z"/><circle class="pin" cx="160" cy="40" r="13" stroke-width="5"/></g>
+          <text class="ink" x="160" y="138" text-anchor="middle" font-size="48" font-weight="900" id="gNum">--</text>
+          <text class="ink2" x="160" y="162" text-anchor="middle" font-size="12" font-weight="700">HEAT INDEX °C</text>
+          <text class="mut" x="22" y="180" font-size="11">20</text><text class="mut" x="286" y="180" font-size="11">52</text>
+        </svg>
+        <div class="lvl" aria-live="polite"><div class="name" id="lvName">—</div><div class="tag" id="lvTag">Waiting for data</div></div>
+        <div class="say" id="say"></div>
+        <div class="chips" id="chips"></div>
+        <span class="warn" id="warn" hidden></span>
+        <div class="note" id="basis"></div>
+        <div class="tri" id="tri" hidden></div>
+        <button class="acc-btn" id="accBtn" data-q="0"><span class="bars"><i></i><i></i><i></i></span><span id="accText">Accuracy: checking…</span><span class="chev">›</span></button>
+      </div>
+    </div>
+
+    <div class="colB">
+      <div class="src" id="src">
+        <button data-s="tri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L3 20h18z"/><circle cx="12" cy="3.5" r="1.6"/><circle cx="3.5" cy="19.5" r="1.6"/><circle cx="20.5" cy="19.5" r="1.6"/><circle cx="12" cy="14" r="1.8"/></svg>Triangulated<small id="triSub">class + station + models</small></button>
+        <button data-s="outdoor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Outdoor only<small>live, corrected</small></button>
+        <button data-s="manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></svg>Enter reading<small>from thermometer</small></button>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">Temperature</div><div class="v" id="sT">--</div></div>
+        <div class="stat"><div class="k">Humidity</div><div class="v" id="sRH">--</div></div>
+        <div class="stat"><div class="k">PAGASA</div><div class="v" id="sCat" style="font-size:14px;padding-top:6px">--</div></div>
+      </div>
+      <div class="upd"><span id="upd">—</span><button id="refresh">Refresh now</button></div>
+      <div class="card">
+        <h2>Today, hour by hour · tap an hour</h2>
+        <div class="hours" id="hours"></div>
+        <div class="hourinfo" id="hourInfo"></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="saveBtn">Save this reading</button>
+        <button class="btn sec" id="openLog">Log · <span id="logCount">0</span> today</button>
+      </div>
+      <p class="foot">Decision aid only. The school head decides the level, coordinating with the SDS for school-level suspension (Sec. 5.2.2). Extreme heat does not automatically suspend classes (par. 6). Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> · station data via <a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">Iowa Environmental Mesonet</a> · cross-check with <a href="https://www.pagasa.dost.gov.ph/weather/heat-index" target="_blank" rel="noopener">PAGASA</a>.</p>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="sheet" id="sheetManual" role="dialog" aria-label="Enter a reading">
+  <button class="grab" aria-label="Close"></button>
+  <h3>Enter a thermometer reading</h3>
+  <p>From any thermometer with humidity (the classroom thermo-hygrometer in Annex B). ALAB uses it for the 4H call <b>and</b> to calibrate a live classroom estimate for the rest of the day.</p>
+  <label for="mRoom">Room / section</label>
+  <input id="mRoom" placeholder="e.g., Grade 5 – Sampaguita" autocomplete="off">
+  <div class="two">
+    <div><label for="mT">Temperature</label><input id="mT" type="number" inputmode="decimal" step="0.1" placeholder="30.3"></div>
+    <div><label for="mRH">Humidity %</label><input id="mRH" type="number" inputmode="decimal" step="1" placeholder="79"></div>
+  </div>
+  <div class="row" style="margin-top:10px"><div class="seg" id="unit"><button class="on" data-u="C">°C</button><button data-u="F">°F</button></div></div>
+  <div class="prev" id="mPrev">Type the readings to see the 4H level.</div>
+  <button class="btn big" id="mUse" style="margin-top:12px" disabled>Use this reading</button>
+</div>
+
+<div class="sheet" id="sheetAcc" role="dialog" aria-label="Accuracy details">
+  <button class="grab" aria-label="Close"></button>
+  <h3>How accurate is this?</h3>
+  <div id="accBody"></div>
+</div>
+
+<div class="sheet" id="sheetLog" role="dialog" aria-label="Readings log">
+  <button class="grab" aria-label="Close"></button>
+  <h3>Readings log</h3>
+  <p>Submit daily to DRRMS: <a href="https://bit.ly/PHExtremeHeat" target="_blank" rel="noopener">bit.ly/PHExtremeHeat</a></p>
+  <div class="row"><button class="btn" id="copyDay" style="flex:1">Copy today's summary</button><button class="btn sec" id="csv" style="flex:1">Download CSV</button></div>
+  <div class="list" id="logList"></div>
+</div>
+
+<div class="sheet" id="sheetSettings" role="dialog" aria-label="Settings">
+  <button class="grab" aria-label="Close"></button>
+  <h3>Settings</h3>
+  <div class="two">
+    <div><label for="schName">School name</label><input id="schName"></div>
+    <div><label for="schId">School ID</label><input id="schId"></div>
+  </div>
+  <label>Location</label>
+  <div class="switch"><span>Use this device's live location</span><input type="checkbox" id="useGps" checked></div>
+  <div id="manualLoc" hidden>
+    <div class="row"><input id="place" placeholder="Search city / municipality" style="flex:1"><button class="btn sec" id="placeGo">Search</button></div>
+    <div class="results" id="placeRes"></div>
+  </div>
+  <div class="switch"><span>Keep screen on (wall/desk monitor)</span><input type="checkbox" id="wake"></div>
+  <div class="switch"><span>Vibrate &amp; notify when the level goes up</span><input type="checkbox" id="alerts" checked></div>
+  <div class="switch"><span>Battery &amp; data saver<br><small style="color:var(--muted)">Refresh every 20 min, fewer models</small></span><input type="checkbox" id="saver"></div>
+  <div class="switch"><span>Install on this device</span><button class="btn sec" id="installBtn" style="padding:8px 12px">Install</button></div>
+  <p id="installHelp" style="font-size:12.5px" hidden></p>
+  <button class="btn big" id="saveSettings" style="margin-top:14px">Done</button>
+  <details style="margin-top:14px;font-size:13px;color:var(--ink2)"><summary style="font-weight:700">4H scale &amp; method</summary>
+    <p><b>Hayo</b> &lt;27 °C · <b>Hinay</b> 27–32 °C · <b>Hinga</b> 33–41 °C · <b>Hinto</b> ≥42 °C (DM 064, s. 2026, Sec. 5.2.2).</p>
+    <p><b>Outdoor:</b> the median of up to 7 forecast models (ECMWF, which PAGASA's heat index map uses, plus GFS, ICON, JMA, GEM, UKMO and Open-Meteo best match) at your exact position. It is corrected by up to 3 nearby airport weather stations (distance- and age-weighted, with outlier checks), and interpolated to the current minute between updates.</p>
+    <p><b>Classroom:</b> each thermometer reading records how much hotter or more humid the room is than outside. The latest readings for that room (weighted toward the newest) are added to the live outdoor value until the end of the day.</p>
+    <p><b>Heat index:</b> NOAA/NWS equation (the basis of the PAGASA chart). Room readings are rounded per Annex B. Values can differ from the printed chart by about ±1 °C, so values near a threshold are flagged. Data stays on this device.</p>
+  </details>
+  <p style="font-size:11.5px;color:var(--muted);margin-top:12px"><b>ALAB</b>: Awareness and Localized Alerts for Heat · Heat Index Checker · v5</p>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* ========== 4H scale (DM 064, s. 2026, Sec. 5.2.2) ========== */
+var LV={
+ hayo:{name:"HAYO",tag:"Manageable · below 27 °C",say:"Face-to-face classes continue, with heat-adapted measures.",m:["Regular classes","Outdoor activities in cooler periods","Safe drinking water","Hydration breaks","Ventilated rooms"]},
+ hinay:{name:"HINAY",tag:"Caution · 27–32 °C",say:"Reduce face-to-face hours, or shift to hybrid or home-based learning.",m:["Modified schedule (e.g., 6–10 AM; 2–6 PM)","Hybrid instruction","Structured home-based learning"]},
+ hinga:{name:"HINGA",tag:"Extreme Caution · 33–41 °C",say:"Suspend face-to-face classes and reduce academic demand.",m:["Light learning tasks","Learning packets","DepEd TV / radio","Well-being check-ins"]},
+ hinto:{name:"HINTO",tag:"Danger · 42 °C and above",say:"Suspend all academic activities, face-to-face and home-based.",m:["Suspend activities","Maintain communication","Safety checks","Referrals for support"]}
+};
+var ORD=["hayo","hinay","hinga","hinto"], LCOL={hayo:"#2e9d57",hinay:"#f2b200",hinga:"#fe7902",hinto:"#c4120f"};
+function levelOf(h){return h<27?"hayo":h<=32?"hinay":h<=41?"hinga":"hinto";}
+function cat(h){return h<27?"Below Caution":h<=32?"Caution":h<=41?"Extreme Caution":h<=51?"Danger":"Extreme Danger";}
+function near(x){var b=[[26.5,"Hayo/Hinay"],[32.5,"Hinay/Hinga"],[41.5,"Hinga/Hinto"]];for(var i=0;i<b.length;i++) if(Math.abs(x-b[i][0])<=1) return b[i][1]; return null;}
+
+/* ========== Physics ========== */
+function hiC(tc,rh){var T=tc*9/5+32,h=0.5*(T+61+(T-68)*1.2+rh*0.094);
+ if((h+T)/2>=80){h=-42.379+2.04901523*T+10.14333127*rh-.22475541*T*rh-.00683783*T*T-.05481717*rh*rh+.00122874*T*T*rh+.00085282*T*rh*rh-.00000199*T*T*rh*rh;
+  if(rh<13&&T>=80&&T<=112)h-=((13-rh)/4)*Math.sqrt((17-Math.abs(T-95))/17);else if(rh>85&&T>=80&&T<=87)h+=((rh-85)/10)*((87-T)/5);}
+ return (h-32)*5/9;}
+function dew(t,rh){var a=17.625,b=243.04,g=Math.log(Math.max(1,rh)/100)+a*t/(b+t);return b*g/(a-g);}
+function rhFrom(t,td){var a=17.625,b=243.04;return Math.min(100,Math.max(1,100*Math.exp(a*td/(b+td)-a*t/(b+t))));}
+function median(a){var s=a.slice().sort(function(x,y){return x-y});var n=s.length;return n?(n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2):NaN;}
+function outdoorHI(t,rh){var e=hiC(t,rh);return {exact:e,hi:Math.round(e)};}
+function roomHI(t,rh){var T=Math.round(t),R=Math.min(100,Math.max(0,Math.round(rh/10)*10)),e=hiC(T,R);return {T:T,R:R,exact:e,hi:Math.round(e)};}
+function km(a,b,c,d){var r=function(x){return x*Math.PI/180},dl=r(c-a),dn=r(d-b),h=Math.pow(Math.sin(dl/2),2)+Math.cos(r(a))*Math.cos(r(c))*Math.pow(Math.sin(dn/2),2);return 12742*Math.asin(Math.sqrt(h));}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+/* ========== Storage & state ========== */
+var S={get:function(k,d){try{var v=localStorage.getItem("alab."+k);return v==null?d:JSON.parse(v)}catch(e){return d}},set:function(k,v){try{localStorage.setItem("alab."+k,JSON.stringify(v))}catch(e){}}};
+var conn=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+var autoSaver=!!(conn&&(conn.saveData||/(^|-)2g/.test(conn.effectiveType||"")));
+var cfg=Object.assign({started:false,school:"",schoolId:"",useGps:true,lat:null,lon:null,place:"",wake:false,alerts:true,room:"",saver:autoSaver},S.get("cfg",{}));
+var readings=S.get("readings",[]);
+var model=S.get("model",null), obsList=[], pos=null, placeName=S.get("placeName",""), geoAt=null;
+var calibs=S.get("calibs",[]);   // [{date,dT,dTd,room,at}]
+var manual=S.get("manual",null), source=S.get("source","tri"), lastLevel=S.get("lastLevel",null);
+var selHour=null, unit="C";
+var MODEL_SETS=[["best_match","ecmwf_ifs025","gfs_seamless","icon_seamless","jma_seamless","gem_seamless","ukmo_seamless"],["best_match","ecmwf_ifs025","gfs_seamless","icon_seamless","jma_seamless"],null];
+var MODEL_NAMES={best_match:"Open-Meteo best match",ecmwf_ifs025:"ECMWF IFS (Europe)",gfs_seamless:"GFS (USA)",icon_seamless:"ICON (Germany)",jma_seamless:"JMA (Japan)",gem_seamless:"GEM (Canada)",ukmo_seamless:"UKMO (UK)",single:"Open-Meteo"};
+
+function $(s){return document.querySelector(s);}
+function $$(s){return Array.prototype.slice.call(document.querySelectorAll(s));}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function pad(n){return String(n).padStart(2,"0");}
+function dkey(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+function ago(ms){var s=Math.round(ms/1000);if(s<20)return"just now";if(s<60)return s+" s ago";var m=Math.round(s/60);if(m<60)return m+" min ago";return Math.round(m/60)+" hr ago";}
+function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(function(){t.classList.remove("show")},2600);}
+function banner(h){$("#banner").innerHTML=h?'<div class="banner">'+h+'</div>':"";}
+function hh(h){return h===12?"12 NN":(h%12||12)+(h<12?" AM":" PM");}
+function fmtTime(ts){return new Date(ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});}
+
+/* Network: timeout + one retry (slow mobile data), with per-source diagnostics */
+var SRCSTAT={weather:{state:"pending"},stations:{state:"pending"},place:{state:"pending"},location:{state:"pending"}};
+function setSrc(k,state,msg){ SRCSTAT[k]={state:state,msg:msg||"",at:Date.now()}; }
+function why(e){
+  if(!e) return "unknown error";
+  if(e.name==="AbortError") return "timed out (slow or no connection)";
+  if(/HTTP \d+/.test(e.message)) return "server replied "+e.message;
+  if(location.protocol==="file:") return "blocked: the app was opened as a file, not from a web link";
+  if(!navigator.onLine) return "device is offline";
+  return "blocked or unreachable (no internet, firewall/school network filter, or opened inside a preview)";
+}
+function getRaw(url,ms,asText){
+  function once(){var ctl=window.AbortController?new AbortController():null, t=ctl?setTimeout(function(){ctl.abort();},ms||9000):null;
+    return fetch(url,ctl?{signal:ctl.signal,cache:"no-store"}:{cache:"no-store"}).then(function(r){clearTimeout(t);if(!r.ok)throw new Error("HTTP "+r.status);return asText?r.text():r.json();},function(e){clearTimeout(t);throw e;});}
+  return once().catch(function(e){ if(e&&/HTTP 4/.test(e.message)) throw e; return new Promise(function(res){setTimeout(res,1200);}).then(once); });
+}
+function getJSON(url,ms){ return getRaw(url,ms,false); }
+
+/* ========== Gauge ========== */
+var G={min:20,max:52,cx:160,cy:160,r:120};
+function ang(v){return Math.PI*(1-(clamp(v,G.min,G.max)-G.min)/(G.max-G.min));}
+function arc(a0,a1,col){function p(a){return [G.cx+G.r*Math.cos(a),G.cy-G.r*Math.sin(a)];}var A=p(a0),B=p(a1);return '<path d="M'+A[0].toFixed(1)+' '+A[1].toFixed(1)+' A'+G.r+' '+G.r+' 0 0 1 '+B[0].toFixed(1)+' '+B[1].toFixed(1)+'" stroke="'+col+'" stroke-width="26" fill="none"/>';}
+$("#arcs").innerHTML=[[20,27,LCOL.hayo],[27,33,LCOL.hinay],[33,42,LCOL.hinga],[42,52,LCOL.hinto]].map(function(x){return arc(ang(x[0]),ang(x[1])-0.004,x[2]);}).join("")+
+ [27,33,42].map(function(v){var a=ang(v);return '<text class="mut" x="'+(G.cx+(G.r+22)*Math.cos(a)).toFixed(1)+'" y="'+(G.cy-(G.r+22)*Math.sin(a)+4).toFixed(1)+'" text-anchor="middle" font-size="11">'+v+'</text>';}).join("");
+function setNeedle(v){var deg=v==null?-90:90-ang(v)*180/Math.PI;$("#needle").style.transform="rotate("+deg.toFixed(2)+"deg)";}
+
+/* ========== Location: precise first fix, then battery-friendly tracking ========== */
+var watchId=null, fixTimer=null;
+function setLocPill(){
+  var p=$("#locPill"); p.classList.remove("live","approx");
+  if(!cfg.useGps){ $("#locName").textContent=cfg.place||"Pick a location"; $("#locAcc").textContent="fixed"; return; }
+  if(!pos){ $("#locName").textContent="Finding your location…"; $("#locAcc").textContent=""; return; }
+  $("#locName").textContent=placeName||(pos.lat.toFixed(4)+", "+pos.lon.toFixed(4));
+  if(pos.kind==="ip"){ p.classList.add("approx"); $("#locAcc").textContent="approx. (network)"; }
+  else { p.classList.add(pos.acc>1500?"approx":"live"); $("#locAcc").textContent="±"+(pos.acc<1000?Math.round(pos.acc)+" m":(pos.acc/1000).toFixed(1)+" km")+" · live"; }
+}
+function onPos(lat,lon,acc,kind){
+  if(pos&&pos.kind==="gps"&&kind==="gps"&&acc>pos.acc*3&&km(pos.lat,pos.lon,lat,lon)<0.3) return;   // ignore a worse fix at the same spot
+  var prev=pos; pos={lat:lat,lon:lon,acc:acc,kind:kind}; banner("");
+  if(!geoAt||km(geoAt.lat,geoAt.lon,lat,lon)>0.5) reverseGeo(lat,lon); else setLocPill();
+  if(!prev||!model||km(model.lat,model.lon,lat,lon)>1) refreshAll(true);
+  setLocPill();
+}
+function startGps(){
+  stopGps();
+  if(!("geolocation" in navigator)){ ipLocate(); return; }
+  setLocPill();
+  var ok=function(p){ clearTimeout(fixTimer); onPos(p.coords.latitude,p.coords.longitude,p.coords.accuracy,"gps"); };
+  var fail=function(err){ if(!pos||pos.kind==="ip"){ if(err.code===1) banner("Location permission is off, so ALAB is using your approximate network location. Allow location for this site for better accuracy, or pick your city in Settings."); ipLocate(); } };
+  navigator.geolocation.getCurrentPosition(ok,fail,{enableHighAccuracy:true,maximumAge:60000,timeout:20000});    // one precise fix
+  watchId=navigator.geolocation.watchPosition(ok,function(){}, {enableHighAccuracy:false,maximumAge:120000,timeout:60000});   // then low-power tracking
+  clearTimeout(fixTimer); fixTimer=setTimeout(function(){ if(!pos) ipLocate(); },12000);
+}
+function stopGps(){ if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;} clearTimeout(fixTimer); }
+function ipLocate(){
+  getJSON("https://api.bigdatacloud.net/data/reverse-geocode-client?localityLanguage=en",10000).then(function(j){
+    if(pos&&pos.kind==="gps") return;
+    if(typeof j.latitude==="number"){ placeName=[j.locality||j.city,j.principalSubdivision].filter(Boolean).join(", "); geoAt={lat:j.latitude,lon:j.longitude}; onPos(j.latitude,j.longitude,25000,"ip"); }
+  }).catch(function(){ if(!pos) banner("Can't find your location. Open Settings and pick your city."); });
+}
+function reverseGeo(lat,lon){
+  geoAt={lat:lat,lon:lon};
+  getJSON("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude="+lat.toFixed(5)+"&longitude="+lon.toFixed(5)+"&localityLanguage=en",10000).then(function(j){
+    var a=j.locality||j.city, b=(j.city&&j.city!==a)?j.city:j.principalSubdivision; placeName=[a,b].filter(Boolean).join(", "); S.set("placeName",placeName); setSrc("place","ok",placeName); setLocPill();
+  }).catch(function(e){ setSrc("place","fail",why(e)+" (coordinates shown instead)"); setLocPill(); });
+}
+function here(){ if(cfg.useGps&&pos) return pos; if(!cfg.useGps&&cfg.lat!=null) return {lat:cfg.lat,lon:cfg.lon,acc:0,kind:"manual"}; return pos; }
+
+/* ========== Nearby stations: Philippine airport METAR stations (data via Iowa Environmental Mesonet) ========== */
+var PH_STATIONS=[["RPLL","Manila NAIA",14.5086,121.0198],["RPLC","Clark",15.1859,120.5603],["RPLB","Subic Bay",14.7944,120.2711],["RPLI","Laoag",18.1781,120.5317],
+ ["RPUT","Tuguegarao",17.6434,121.7331],["RPUB","Baguio",16.3751,120.6199],["RPUH","San Jose, Mindoro",12.3615,121.0469],["RPUN","Naga",13.5849,123.2700],
+ ["RPLP","Legazpi",13.1575,123.7350],["RPVI","Iloilo",10.8330,122.4934],["RPVB","Bacolod-Silay",10.7764,123.0148],["RPVK","Kalibo",11.6794,122.3763],
+ ["RPVR","Roxas",11.5977,122.7520],["RPVE","Caticlan",11.9245,121.9540],["RPVM","Mactan-Cebu",10.3075,123.9794],["RPVD","Dumaguete",9.3337,123.3020],
+ ["RPSP","Bohol-Panglao",9.5664,123.7714],["RPVA","Tacloban",11.2276,125.0277],["RPVP","Puerto Princesa",9.7421,118.7587],["RPME","Butuan",8.9515,125.4788],
+ ["RPMS","Surigao",9.7558,125.4811],["RPML","Laguindingan (CDO)",8.6122,124.4566],["RPMO","Ozamiz",8.1785,123.8418],["RPMD","Davao",7.1255,125.6458],
+ ["RPMR","General Santos",6.0580,125.0960],["RPMC","Cotabato",7.1652,124.2096],["RPMZ","Zamboanga",6.9224,122.0596],["RPUO","Basco",20.4513,121.9800]];
+function parseCSVobs(txt){ // station,valid,tmpf,dwpf  (valid in UTC)
+  var last={}; txt.split(/\r?\n/).forEach(function(line){ var c=line.split(","); if(c.length<4||c[0]==="station"||c[0].charAt(0)==="#") return;
+    var t=parseFloat(c[2]), d=parseFloat(c[3]); if(!isFinite(t)) return; last[c[0]]={valid:c[1],tmpf:t,dwpf:isFinite(d)?d:null}; });
+  return last;
+}
+function loadObs(lat,lon){
+  var cand=PH_STATIONS.map(function(s){return {id:s[0],name:s[1],lat:s[2],lon:s[3],d:km(lat,lon,s[2],s[3])};}).filter(function(s){return s.d<=120;}).sort(function(a,b){return a.d-b.d;}).slice(0,4);
+  if(!cand.length){ setSrc("stations","none","no airport station within 120 km"); return Promise.resolve([]); }
+  var url="https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?"+cand.map(function(s){return "station="+s.id;}).join("&")+"&data=tmpf&data=dwpf&hours=3&tz=Etc/UTC&format=onlycomma&missing=empty&trace=empty&latlon=no";
+  return getRaw(url,10000,true).then(function(txt){
+    var last=parseCSVobs(txt), out=[];
+    cand.forEach(function(s){ var r=last[s.id]; if(!r) return;
+      var when=Date.parse(r.valid.replace(" ","T")+"Z"); if(!isFinite(when)) return;
+      var t=(r.tmpf-32)*5/9, td=r.dwpf!=null?(r.dwpf-32)*5/9:null; if(td==null||t<10||t>48) return;
+      var age=(Date.now()-when)/60000; if(age>120||age<-10) return;
+      out.push({id:s.id,name:s.name,lat:s.lat,lon:s.lon,d:s.d,t:t,td:Math.min(t,td),rh:rhFrom(t,Math.min(t,td)),at:when,ageMin:Math.max(0,age)}); });
+    setSrc("stations",out.length?"ok":"none",out.length?(out.length+" station(s) reporting: "+out.map(function(o){return o.id;}).join(", ")):"nearby stations have no report in the last 2 h");
+    return out.slice(0,3);
+  }).catch(function(e){ setSrc("stations","fail",why(e)); return []; });
+}
+
+/* ========== Multi-model consensus (Open-Meteo) ========== */
+function omURL(lats,lons,models){   // models === null → plainest possible request (last-resort fallback)
+  return "https://api.open-meteo.com/v1/forecast?latitude="+lats.join(",")+"&longitude="+lons.join(",")+
+    "&current=temperature_2m,relative_humidity_2m&hourly=temperature_2m,relative_humidity_2m&timezone=auto&forecast_days=2"+(models?"&cell_selection=land&models="+models.join(","):"");
+}
+function pickModels(block){var out={};Object.keys(block).forEach(function(k){var m=k.match(/^temperature_2m(?:_(.+))?$/);if(!m)return;var name=m[1]||"single",rk="relative_humidity_2m"+(m[1]?"_"+m[1]:"");if(block[rk]!=null)out[name]=[block[k],block[rk]];});return out;}
+function consensus(pairs){
+  var ok=pairs.filter(function(p){return p[0]!=null&&p[1]!=null&&isFinite(p[0])&&isFinite(p[1]);}); if(!ok.length) return null;
+  var t=median(ok.map(function(p){return p[0];})), td=median(ok.map(function(p){return dew(p[0],p[1]);}));
+  var his=ok.map(function(p){return hiC(p[0],p[1]);});
+  return {t:t,td:Math.min(t,td),n:ok.length,spread:Math.max.apply(null,his)-Math.min.apply(null,his)};
+}
+var okSet=null;   // model set that worked last time
+function fetchModel(lat,lon,sts){
+  var lats=[lat.toFixed(4)],lons=[lon.toFixed(4)]; sts.forEach(function(s){lats.push(s.lat.toFixed(4));lons.push(s.lon.toFixed(4));});
+  var sets=cfg.saver?MODEL_SETS.slice(1):MODEL_SETS, i=Math.max(0,okSet?sets.indexOf(okSet):0);
+  function attempt(){ return getJSON(omURL(lats,lons,sets[i]),12000).then(function(j){okSet=sets[i];return j;}).catch(function(e){ if(++i<sets.length) return attempt(); throw e; }); }
+  return attempt().then(function(j){
+    var arr=Array.isArray(j)?j:[j], A=arr[0];
+    var cm=pickModels(A.current), names=Object.keys(cm), cur=consensus(names.map(function(n){return cm[n];}));
+    var H=A.hourly, hm=pickModels(H), hn=Object.keys(hm), hours=[];
+    for(var k=0;k<H.time.length;k++){ var c=consensus(hn.map(function(n){return [hm[n][0][k],hm[n][1][k]];})); if(c) hours.push({time:H.time[k],t:c.t,td:c.td,spread:c.spread}); }
+    var atSt=sts.map(function(s,idx){var B=arr[idx+1]; if(!B) return null; var bm=pickModels(B.current); return consensus(Object.keys(bm).map(function(n){return bm[n];}));});
+    return {at:Date.now(),lat:lat,lon:lon,off:A.utc_offset_seconds||0,time:A.current.time,cur:cur,
+      models:names.map(function(n){return {name:n,t:cm[n][0],rh:cm[n][1]};}),hours:hours,atSt:atSt};
+  });
+}
+
+function modelAtStations(sts){
+  if(!sts.length) return Promise.resolve([]);
+  var sets=cfg.saver?MODEL_SETS.slice(1):MODEL_SETS, set=okSet||sets[0];
+  return getJSON(omURL(sts.map(function(s){return s.lat.toFixed(4);}),sts.map(function(s){return s.lon.toFixed(4);}),set).replace(/&hourly=[^&]*/,""),12000).then(function(j){
+    var arr=Array.isArray(j)?j:[j]; return arr.map(function(B){var bm=pickModels(B.current);return consensus(Object.keys(bm).map(function(n){return bm[n];}));});
+  }).catch(function(){return [];});
+}
+/* Station correction: inverse-distance & age weighted, with outlier rejection */
+function stationBias(m,sts){
+  var sw=0,sT=0,sTd=0,miss=1,used=[];
+  sts.forEach(function(o,i){
+    var ms=m.atSt[i]; if(!ms) return;
+    var dT=o.t-ms.t, dTd=o.td-ms.td;
+    if(Math.abs(dT)>6||Math.abs(dTd)>8){ o.rejected=true; return; }             // QC: implausible gap → ignore
+    var w=Math.exp(-o.d/40)*(o.ageMin<=60?1:clamp(1-(o.ageMin-60)/100,0.4,1));
+    sw+=w; sT+=w*dT; sTd+=w*dTd; miss*=(1-w); o.w=w; o.dT=dT; used.push(o);
+  });
+  if(!sw) return {dT:0,dTd:0,w:0,used:[]};
+  return {dT:clamp(sT/sw,-4,4),dTd:clamp(sTd/sw,-4,4),w:Math.min(0.95,1-miss),used:used};
+}
+
+/* ========== Refresh pipeline: weather first (shows fast), stations in parallel, then correction ========== */
+var busy=false;
+function refreshAll(force){
+  var h=here(); if(!h||busy) return; if(!force&&document.hidden) return; busy=true; $("#refresh").textContent="Updating…"; renderStatus();
+  var obsP=loadObs(h.lat,h.lon);
+  fetchModel(h.lat,h.lon,[]).then(function(m){
+    var prev=model; m.bias=(prev&&prev.bias&&km(prev.lat,prev.lon,m.lat,m.lon)<2)?prev.bias:{dT:0,dTd:0,w:0,used:[]}; m.obs=(prev&&prev.obs)||[];
+    model=m; S.set("model",model); setSrc("weather","ok",m.cur.n+" model"+(m.cur.n>1?"s":"")+" · Open-Meteo"); banner(""); render();
+    return obsP.then(function(o){ obsList=o; return modelAtStations(o).then(function(atSt){ m.atSt=atSt; m.bias=stationBias(m,o); m.obs=o; S.set("model",model); }); });
+  }).catch(function(e){
+    var r=why(e); setSrc("weather","fail",r);
+    banner("<b>Can't get live weather data.</b> Reason: "+esc(r)+". "+(model?"Showing the last data from "+ago(Date.now()-model.at)+". ":"")+'<a href="#" onclick="testSources();return false">Test connections</a>');
+  }).then(function(){ busy=false; $("#refresh").textContent="Refresh now"; render(); });
+}
+
+/* Connection test: checks every data source and reports why one fails */
+function testSources(){
+  renderAcc(); openSheet("#sheetAcc");
+  var box=$("#srcTest"); if(!box) return; box.innerHTML="Testing…";
+  var h=here()||{lat:14.5995,lon:120.9842};
+  var tests=[
+    ["Weather models (Open-Meteo)", getJSON("https://api.open-meteo.com/v1/forecast?latitude="+h.lat.toFixed(2)+"&longitude="+h.lon.toFixed(2)+"&current=temperature_2m",9000)],
+    ["Weather stations (Iowa Environmental Mesonet)", getRaw("https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=RPLL&data=tmpf&hours=3&format=onlycomma",9000,true)],
+    ["Place names (BigDataCloud)", getJSON("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=14.6&longitude=121&localityLanguage=en",9000)]
+  ];
+  Promise.all(tests.map(function(t){var s0=Date.now();return t[1].then(function(){return [t[0],true,(Date.now()-s0)+" ms"];},function(e){return [t[0],false,why(e)];});})).then(function(rs){
+    var loc=!("geolocation" in navigator)?[ "Device location", false, "not supported on this browser"]:[ "Device location", !!(pos&&pos.kind==="gps"), pos?(pos.kind==="gps"?"OK, ±"+Math.round(pos.acc)+" m":"using approximate network location (permission off or no fix)"):(window.isSecureContext?"waiting for permission/fix":"needs a secure https link")];
+    rs.push(loc);
+    box.innerHTML='<table class="t">'+rs.map(function(r){return '<tr><td>'+(r[1]?"✅":"❌")+'</td><td><b>'+esc(r[0])+'</b><br><span style="color:var(--muted)">'+esc(r[2])+'</span></td></tr>';}).join("")+'</table>'+
+      (rs.some(function(r){return !r[1];})?'<p style="font-size:12.5px">If everything fails: make sure ALAB is opened from its <b>https web link</b> (not by double-clicking the file or inside a preview), the device is online, and the school Wi-Fi isn\'t blocking these sites (try mobile data).</p>':'<p style="font-size:12.5px">All sources reachable. ✔</p>');
+  });
+}
+
+/* Local "now" at the location, as "YYYY-MM-DDTHH:MM" */
+function localNow(){ return new Date(Date.now()+(model?model.off:0)*1000).toISOString().slice(0,16); }
+function hourIdx(str){ if(!model) return -1; var hs=model.hours; for(var i=hs.length-1;i>=0;i--){ if(hs[i].time<=str) return i; } return -1; }
+function corr(t,td,hoursAhead){ var b=(model&&model.bias)||{dT:0,dTd:0,w:0}, f=b.w*Math.exp(-Math.max(0,hoursAhead)/6); var T=t+f*b.dT; return {t:T,td:Math.min(T,td+f*b.dTd)}; }
+/* Outdoor now: model "current" when fresh; otherwise interpolate the hourly series to this minute */
+function outdoorNow(){
+  if(!model||!model.cur) return null;
+  var ageMin=(Date.now()-model.at)/60000, base;
+  if(ageMin<=20) base=corr(model.cur.t,model.cur.td,0);
+  else{
+    var now=localNow(), i=hourIdx(now); if(i<0||i>=model.hours.length-1) base=corr(model.cur.t,model.cur.td,ageMin/60);
+    else{ var a=model.hours[i], b=model.hours[i+1], f=(+now.slice(14,16))/60;
+      base=corr(a.t+(b.t-a.t)*f, a.td+(b.td-a.td)*f, ageMin/60); base.interp=true; }
+  }
+  base.rh=rhFrom(base.t,base.td); return base;
+}
+
+/* ========== Classroom calibration (recency-weighted, same room) ========== */
+function calibNow(){
+  var today=dkey(new Date()), c=calibs.filter(function(x){return x.date===today;}); if(!c.length) return null;
+  var last=c[c.length-1], same=c.filter(function(x){return x.room===last.room;}).slice(-3).reverse(), ws=[1,0.5,0.25], sw=0, dT=0, dTd=0;
+  same.forEach(function(x,i){sw+=ws[i];dT+=ws[i]*x.dT;dTd+=ws[i]*x.dTd;});
+  return {dT:dT/sw,dTd:dTd/sw,room:last.room,at:last.at,n:same.length};
+}
+
+/* ========== Accuracy rating ========== */
+function quality(){
+  if(!model||!model.cur) return {q:0,text:"Accuracy: waiting for data"};
+  var sp=model.cur.spread, n=model.cur.n, b=model.bias||{w:0,used:[]}, st=b.w>0.3;
+  var locOk=!cfg.useGps||(pos&&pos.kind!=="ip"&&pos.acc<=1500), stale=(Date.now()-model.at)>45*60000;
+  var q=3; if(n<3||sp>3) q=2; if(sp>5) q=1; if(!st&&q===3&&sp>1.5) q=2; if(!locOk||stale) q=Math.min(q,2);
+  var parts=[n+" model"+(n>1?"s":"")+" agree within "+sp.toFixed(1)+"°"];
+  parts.push(st?("checked vs "+b.used.length+" station"+(b.used.length>1?"s":"")+" (nearest "+Math.round(b.used[0].d)+" km)"):"no nearby station");
+  if(!locOk) parts.push("approximate location"); if(stale) parts.push("data "+ago(Date.now()-model.at));
+  return {q:q,text:(q===3?"High":q===2?"Medium":"Low")+" accuracy · "+parts.join(" · ")};
+}
+function renderAcc(){
+  var h="";
+  if(model&&model.cur){
+    var b=model.bias||{w:0,used:[]};
+    h+='<p><b>Outdoor reading:</b> median of '+model.cur.n+' forecast models, fetched '+ago(Date.now()-model.at)+(outdoorNow()&&outdoorNow().interp?' and interpolated to this minute':'')+'.</p>';
+    h+='<table class="t"><tr><th>Model</th><th>Temp</th><th>RH</th><th>HI</th></tr>'+model.models.map(function(m){return '<tr><td>'+esc(MODEL_NAMES[m.name]||m.name)+'</td><td>'+(+m.t).toFixed(1)+'°</td><td>'+Math.round(m.rh)+'%</td><td>'+Math.round(hiC(m.t,m.rh))+'°</td></tr>';}).join("")+'</table>';
+    if(model.obs&&model.obs.length){
+      h+='<p style="margin-top:12px"><b>Weather stations used for correction:</b></p><table class="t"><tr><th>Station</th><th>Dist</th><th>Measured</th><th>Model gap</th><th>Weight</th></tr>'+
+        model.obs.map(function(o){return '<tr><td>'+esc(o.name||o.id)+' <span style="color:var(--muted)">'+esc(o.id)+'</span></td><td>'+Math.round(o.d)+' km</td><td>'+o.t.toFixed(1)+'° · '+Math.round(o.ageMin)+'m ago</td><td>'+(o.rejected?'rejected':((o.dT>=0?"+":"")+o.dT.toFixed(1)+'°'))+'</td><td>'+(o.w?Math.round(o.w*100)+'%':'—')+'</td></tr>';}).join("")+'</table>';
+      if(b.w>0.05) h+='<p>Net correction applied here: <b>'+(b.dT>=0?"+":"")+(b.w*b.dT).toFixed(1)+' °C</b> ('+Math.round(b.w*100)+'% strength). It fades over the next hours of the forecast.</p>';
+    } else h+='<p style="margin-top:12px"><b>Weather stations:</b> none within 120 km reported in the last 2 hours, so no correction is applied.</p>';
+  }
+  var hr=here(), c=calibNow();
+  h+='<p style="margin-top:12px"><b>Data sources</b></p><table class="t">'+[["Weather models","weather"],["Weather stations","stations"],["Place names","place"]].map(function(x){var st=SRCSTAT[x[1]]||{};return '<tr><td>'+(st.state==="ok"?"✅":st.state==="fail"?"❌":st.state==="none"?"➖":"⏳")+'</td><td>'+x[0]+'<br><span style="color:var(--muted)">'+esc(st.msg||"waiting")+'</span></td></tr>';}).join("")+'</table>';
+  h+='<div id="srcTest" style="margin-top:8px"></div><button class="btn sec" style="margin-top:8px;width:100%" onclick="testSources()">Test connections</button>';
+  h+='<p><b>Location:</b> '+(hr?(hr.kind==="gps"?"device location, ±"+Math.round(hr.acc)+" m":hr.kind==="ip"?"approximate (internet network). Allow location for better accuracy":"fixed city: "+esc(cfg.place)):"unknown")+'.</p>';
+  h+='<p><b>Classroom:</b> '+(c?'calibrated from '+c.n+' reading'+(c.n>1?'s':'')+' in '+esc(c.room||"a room")+', latest at '+fmtTime(c.at)+' (room vs outdoor: '+(c.dT>=0?"+":"")+c.dT.toFixed(1)+' °C).':'not calibrated today. Enter one thermometer reading to get a live classroom estimate.')+'</p>';
+  h+='<p style="font-size:12.5px">Indoor heat under a metal roof can run several degrees above outdoor shade, so the classroom thermometer always gives the most accurate call. Cross-check with <a href="https://www.pagasa.dost.gov.ph/weather/heat-index" target="_blank" rel="noopener">PAGASA</a>.</p>';
+  $("#accBody").innerHTML=h;
+}
+
+/* ========== Triangulation: classroom thermometer × weather stations × weather models ==========
+   Two INDEPENDENT checks, so agreement is never circular:
+   1) Outdoor check: measured weather-station readings vs weather-model forecast (both unadjusted).
+   2) Classroom check: the classroom thermometer vs a classroom prediction built from the outdoor
+      sources + the room offset learned from EARLIER readings today (never the reading being checked).
+   Weights: thermometer 0.60 × freshness (full ≤30 min → 0 at 2 h) · stations 0.30 × distance/age · models 0.20 × model agreement.
+   Decision = weighted heat index for the classroom, and never below a fresh thermometer reading
+   (the classroom thermometer is the memo's basis for suspension, Sec. 6.1 / Annex B). */
+function baseNow(withBias){
+  if(!model||!model.cur) return null;
+  var b=model.bias; if(!withBias) model.bias={dT:0,dTd:0,w:0,used:[]};
+  var o=outdoorNow(); model.bias=b; return o;
+}
+function stationNow(){
+  var used=((model&&model.obs)||[]).filter(function(o){return !o.rejected;}); if(!used.length) return null;
+  var sw=0,t=0,td=0,mx=0,age=1e9;
+  used.forEach(function(o){var w=Math.exp(-o.d/40)*(o.ageMin<=60?1:clamp(1-(o.ageMin-60)/100,0.4,1));sw+=w;t+=w*o.t;td+=w*o.td;mx=Math.max(mx,w);age=Math.min(age,o.ageMin);});
+  t/=sw; td=Math.min(t,td/sw);
+  return {t:t,td:td,rh:rhFrom(t,td),w:Math.min(0.95,mx),n:used.length,names:used.map(function(o){return o.name||o.id;}),nearest:used[0],ageMin:age};
+}
+function calibBefore(ts){  // room offset from readings taken before ts (same day, same room as the latest of them)
+  var keep=calibs; calibs=calibs.filter(function(x){return x.at<ts-1000;}); var c=calibNow(); calibs=keep; return c;
+}
+function shiftToRoom(t,td,cal){ if(!cal) return {t:t,td:td}; var T=t+cal.dT; return {t:T,td:Math.min(T,td+cal.dTd)}; }
+function triangulate(){
+  var mAge=manual?(Date.now()-manual.at)/60000:1e9, fresh=!!manual&&mAge<=120;
+  var cal=fresh?calibBefore(manual.at):calibNow();
+  var raw=baseNow(false), st=stationNow(), legs=[], rows={};
+  // 1) Outdoor check (unadjusted, independent)
+  var stO=st?outdoorHI(st.t,st.rh):null, mdO=raw?outdoorHI(raw.t,raw.rh):null;
+  var outdoor={state:(stO&&mdO)?(levelOf(stO.hi)===levelOf(mdO.hi)?"agree":"split"):(mdO?"models-only":(stO?"station-only":"none")),st:stO,md:mdO};
+  // outdoor legs, shifted to classroom conditions when an independent room offset exists
+  var room=!!cal;
+  if(st){ var vs=shiftToRoom(st.t,st.td,cal), rs=rhFrom(vs.t,vs.td), r2=room?roomHI(vs.t,rs):outdoorHI(vs.t,rs);
+    rows.station={k:"station",label:"Weather station"+(st.n>1?"s ("+st.n+")":""),detail:st.names.join(", ")+" · "+Math.round(st.nearest.d)+" km · measured "+Math.round(st.ageMin)+" min ago"+(room?" · room-adjusted":" · outdoor"),t:vs.t,rh:rs,exact:r2.exact,hi:r2.hi,w:0.3*st.w}; legs.push(rows.station); }
+  if(raw){ var vm=shiftToRoom(raw.t,raw.td,cal), rm=rhFrom(vm.t,vm.td), r3=room?roomHI(vm.t,rm):outdoorHI(vm.t,rm);
+    rows.models={k:"models",label:"Weather models ("+model.cur.n+")",detail:"median forecast here"+(room?" · room-adjusted":" · outdoor"),t:vm.t,rh:rm,exact:r3.exact,hi:r3.hi,w:0.2*(model.cur.spread<=2?1:0.6)}; legs.push(rows.models); }
+  // prediction of the classroom from outdoor legs alone (used for the classroom check)
+  var pw=0,pe=0; legs.forEach(function(l){pw+=l.w;pe+=l.w*l.exact;}); var pred=pw?pe/pw:null;
+  // 2) Classroom leg
+  var thermo=null, cls={state:"none"};
+  if(fresh){ var fr=mAge<=30?1:clamp(1-(mAge-30)/90,0.05,1), r=roomHI(manual.t,manual.rh);
+    thermo={k:"class",measured:true,label:"Classroom thermometer",detail:(manual.room||"room")+" · "+ago(Date.now()-manual.at)+" · "+manual.t.toFixed(1)+" °C, "+Math.round(manual.rh)+"%",t:manual.t,rh:manual.rh,exact:r.exact,hi:r.hi,w:0.6*fr};
+    rows["class"]=thermo;
+    if(room&&pred!=null){ var d=r.exact-pred; cls={state:(Math.abs(d)<=3&&levelOf(Math.round(pred))===levelOf(r.hi))?"consistent":(d>0?"hotter":"cooler"),diff:d,pred:Math.round(pred)}; }
+    else { var o=outdoorNow(); cls={state:"first",diff:o?manual.t-o.t:null}; }
+  } else if(room&&pred!=null){ rows["class"]={k:"class",measured:false,derived:true,label:"Classroom estimate",detail:(cal.room||"room")+" · from today's calibration ("+fmtTime(cal.at)+")",hi:Math.round(pred),exact:pred}; cls={state:"estimate"}; }
+  // Decision
+  var ex, reason="weighted";
+  if(thermo&&room){ legs.push(thermo); var sw=0,e=0; legs.forEach(function(l){sw+=l.w;e+=l.w*l.exact;}); ex=e/sw; }
+  else if(thermo){ ex=thermo.exact; reason="thermometer-only"; legs=[thermo].concat(legs.map(function(l){var c=Object.assign({},l);c.w=0;return c;})); }
+  else if(pred!=null){ ex=pred; }
+  else return null;
+  var tot=0; legs.forEach(function(l){tot+=l.w;}); legs.forEach(function(l){l.share=tot?l.w/tot:0;l.level=levelOf(l.hi); if(rows[l.k]&&rows[l.k]!==l) rows[l.k].share=l.share;});
+  Object.keys(rows).forEach(function(k){rows[k].level=levelOf(rows[k].hi); if(rows[k].share==null) rows[k].share=0;});
+  var hi=Math.round(ex), level=levelOf(hi);
+  if(thermo&&(ORD.indexOf(levelOf(thermo.hi))>ORD.indexOf(level)||cls.state==="hotter")){ level=levelOf(thermo.hi); hi=thermo.hi; ex=thermo.exact; reason="thermometer"; }   // precaution: a hotter-than-predicted room is taken at its measured value
+  var verified=(outdoor.state==="agree"||outdoor.state==="station-only")&&(cls.state==="consistent"||cls.state==="first"||cls.state==="estimate"||(cls.state==="none"&&outdoor.state==="agree"));
+  var nsrc=(thermo?1:0)+(st?1:0)+(raw?1:0);
+  var lead=thermo||rows.station||rows.models;
+  return {legs:legs,rows:rows,exact:ex,hi:hi,level:level,reason:reason,outdoor:outdoor,cls:cls,room:room,verified:verified,nsrc:nsrc,lead:lead};
+}
+function renderTri(c){
+  var box=$("#tri"); if(!c||c.src!=="tri"||!c.tri){box.hidden=true;return;} box.hidden=false;
+  var T=c.tri, R=T.rows;
+  var IC={"class":'<path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M12 11v5"/><circle cx="12" cy="17.5" r="1.5"/>',
+          station:'<path d="M12 21V9"/><path d="M8 21h8"/><path d="M7.5 6.5a6 6 0 0 1 9 0M5 4a10 10 0 0 1 14 0"/><circle cx="12" cy="9" r="1.6"/>',
+          models:'<path d="M7 18a4 4 0 0 1-.5-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 17.5 18z"/>'};
+  var row=function(k,l,off){
+    var ic='<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'+IC[k]+'</svg></span>';
+    if(off) return '<div class="leg off">'+ic+'<div class="lt"><b>'+off[0]+'</b><small>'+esc(off[1])+'</small></div><div class="lv">'+(off[2]||"—")+'</div></div>';
+    var bar=l.derived?'':'<div class="wb" title="weight '+Math.round((l.share||0)*100)+'%"><i style="width:'+Math.round((l.share||0)*100)+'%"></i></div>';
+    return '<div class="leg'+(l.derived?' off':'')+'">'+ic+'<div class="lt"><b>'+esc(l.label)+'</b><small>'+esc(l.detail)+'</small></div><div class="lv"><b>'+l.hi+'°</b><span class="pill '+l.level+'">'+LV[l.level].name+'</span></div>'+bar+'</div>';
+  };
+  var h='<h4>Triangulated decision · '+T.nsrc+' independent source'+(T.nsrc===1?'':'s')+' · bar = weight</h4>';
+  h+=R["class"]?row("class",R["class"]):row("class",null,["Classroom thermometer","No reading in the last 2 h",'<button onclick="openReading()">Add reading</button>']);
+  h+=R.station?row("station",R.station):row("station",null,["Weather station",(SRCSTAT.stations&&SRCSTAT.stations.msg)||"none within 120 km"]);
+  h+=R.models?row("models",R.models):row("models",null,["Weather models","waiting for data"]);
+  var O=T.outdoor, C=T.cls, lines=[];
+  // outdoor check
+  if(O.state==="agree") lines.push(["ok","✓ Outdoor check: station and models agree ("+LV[levelOf(O.st.hi)].name+", "+O.st.hi+"° vs "+O.md.hi+"°)"]);
+  else if(O.state==="split") lines.push(["split","Outdoor check: station "+O.st.hi+"° ("+LV[levelOf(O.st.hi)].name+") vs models "+O.md.hi+"° ("+LV[levelOf(O.md.hi)].name+"). The measured station gets more weight"]);
+  else if(O.state==="models-only") lines.push(["split","Outdoor check: models only (no station reporting nearby)"]);
+  // classroom check
+  if(C.state==="consistent") lines.push(["ok","✓ Classroom check: thermometer matches the prediction from outdoor data ("+LV[T.rows["class"].level].name+", within "+Math.abs(C.diff).toFixed(1)+"°)"]);
+  else if(C.state==="hotter") lines.push(["bad","Classroom check: thermometer reads "+C.diff.toFixed(1)+"° hotter than predicted ("+C.pred+"°). Using the thermometer; check ventilation and room occupancy"]);
+  else if(C.state==="cooler") lines.push(["split","Classroom check: thermometer reads "+Math.abs(C.diff).toFixed(1)+"° cooler than predicted ("+C.pred+"°). Weighted decision; re-check if unsure"]);
+  else if(C.state==="first") lines.push(["ok","First classroom reading today"+(C.diff!=null?": room is "+(C.diff>=0?"+":"")+C.diff.toFixed(1)+" °C vs outdoor":"")+". Later readings will be cross-checked against it"]);
+  else if(C.state==="estimate") lines.push(["split","No fresh thermometer reading: classroom estimated from outdoor data + today's calibration. Add a reading to confirm"]);
+  else lines.push(["split","No classroom reading today: this is the OUTDOOR heat. Classrooms can be hotter, so add a thermometer reading"]);
+  if(T.reason==="thermometer") lines.push(["bad","Decision uses the thermometer value ("+T.hi+"°, "+LV[T.level].name+"). The classroom thermometer is the memo's basis for suspension"]);
+  h+=lines.map(function(x){return '<div class="agree '+x[0]+'">'+esc(x[1])+'</div>';}).join("");
+  box.innerHTML=h;
+}
+function openReading(){ openSheet("#sheetManual"); $("#mRoom").value=cfg.room||""; setTimeout(function(){$("#mT").focus();},260); }
+
+/* ========== Current reading by source ========== */
+function current(){
+  if(source==="tri"){ var T=triangulate(); if(!T) return null; var ld=T.lead;
+    var parts=T.legs.map(function(l){return l.k==="class"?(l.measured?"classroom thermometer":"classroom estimate"):l.k==="station"?"weather station":"weather models";});
+    return {exact:T.exact,hi:T.hi,t:ld.t,rh:ld.rh,src:"tri",tri:T,at:model?model.at:Date.now(),
+      basis:"Decision triangulated from "+parts.join(" + ")+"."+(T.reason==="thermometer"?" Raised to match the classroom thermometer (the memo's basis for suspension).":"")};
+  }
+
+  var o=outdoorNow();
+  if(o){ var r3=outdoorHI(o.t,o.rh); return Object.assign({},r3,{t:o.t,rh:o.rh,src:"outdoor",basis:"Outdoor only: live heat at your location. Classrooms can be hotter. Switch to Triangulated for the classroom decision.",at:model.at}); }
+  return null;
+}
+
+/* ========== Live / accuracy status badge ==========
+   VERIFIED  online, data fetched ≤15 min ago, High accuracy (models agree + station-checked)
+   LIVE      online, data ≤15 min old, Medium/Low accuracy (estimate)
+   MEASURED  verdict comes from a thermometer reading entered ≤90 min ago
+   UPDATING  fetching now · STALE data older than 15 min · OFFLINE no connection (cached data) */
+function renderStatus(){
+  var el=$("#status"); if(!el) return;
+  var q=quality().q, c=current(), online=navigator.onLine, age=model?(Date.now()-model.at):Infinity, st, tag, msg, nx="";
+  var next=model?Math.max(0,refreshEvery()-age):0, mm=Math.floor(next/60000), ss=Math.floor(next%60000/1000);
+  if(c&&c.src==="manual"){ st="measured"; tag="MEASURED"; msg="Thermometer reading · "+ago(Date.now()-c.at); }
+  else if(busy&&!model){ st="updating"; tag="LIVE"; msg="Getting live data…"; }
+  else if(!online){ st="offline"; tag="OFFLINE"; msg=model?"Showing data from "+ago(age):"No data yet"; }
+  else if(!model){ st="updating"; tag="…"; msg="Waiting for location…"; }
+  else if(busy){ st="updating"; tag="UPDATING"; msg="Refreshing live data…"; }
+  else if(age>15*60000){ st="stale"; tag="STALE"; msg="Last update "+ago(age)+". Tap Refresh"; }
+  else if(q===3){ st="verified"; tag="LIVE"; msg="✓ Verified accurate · "+ago(age); nx="next "+mm+":"+pad(ss); }
+  else { st="live"; tag="LIVE"; msg=(q===2?"Estimated (medium accuracy)":"Low accuracy")+" · "+ago(age); nx="next "+mm+":"+pad(ss); }
+  if(c&&c.src==="tri"&&c.tri&&(st==="verified"||st==="live")){ var T=c.tri;
+    if(T.verified&&T.nsrc>=2&&T.cls.state==="none"){ st="live"; msg="✓ Outdoor verified · add a classroom reading"; }
+    else if(T.verified&&T.nsrc>=2&&T.cls.state==="first"){ st="verified"; msg="✓ Outdoor verified · classroom measured"; }
+    else if(T.verified&&T.nsrc>=2&&T.cls.state==="estimate"){ st="live"; msg="✓ Outdoor verified · classroom estimated"; }
+    else if(T.verified&&T.nsrc>=2){ st="verified"; msg="✓ Triangulated · "+T.nsrc+" sources check out · "+ago(age); }
+    else if(T.nsrc>=2){ st="live"; msg="Sources differ · tap for details"; }
+    else { st="live"; msg="1 source only · add a reading"; } }
+  el.dataset.s=st; $("#stTag").textContent=tag; $("#stMsg").textContent=msg; $("#stNext").textContent=nx;
+  el.setAttribute("aria-label","Data status: "+tag+". "+msg);
+}
+$("#status").onclick=function(){renderAcc();openSheet("#sheetAcc");};
+addEventListener("offline",function(){renderStatus();});
+
+/* ========== Render ========== */
+function render(){
+  $("#school").textContent=cfg.school?cfg.school+(cfg.schoolId?" · "+cfg.schoolId:""):"Heat Index Checker";
+  if(source!=="tri"&&source!=="outdoor") source="tri";
+  $$("#src button").forEach(function(b){b.classList.toggle("on",b.dataset.s===source);});
+  var c=current();
+  if(!c){$("#tri").hidden=true;document.body.dataset.l="none";setNeedle(null);$("#gNum").textContent="--";$("#lvName").textContent="—";$("#lvTag").textContent="Waiting for location & weather…";$("#say").textContent="";$("#chips").innerHTML="";$("#basis").textContent="";$("#warn").hidden=true;}
+  else{
+    var l=levelOf(c.hi),L=LV[l]; document.body.dataset.l=l;
+    setNeedle(c.exact); $("#gNum").textContent=c.hi+"°";
+    $("#lvName").textContent=L.name; $("#lvTag").textContent=L.tag; $("#say").textContent=L.say;
+    $("#chips").innerHTML=L.m.map(function(x){return "<span>"+esc(x)+"</span>";}).join("");
+    var n=near(c.exact); $("#warn").hidden=!n; if(n) $("#warn").textContent="Close to the "+n+" line: double-check with a thermometer";
+    $("#basis").innerHTML=c.basis;
+    $("#sT").innerHTML=c.t.toFixed(1)+"<small>°C</small>"; $("#sRH").innerHTML=Math.round(c.rh)+"<small>%</small>"; $("#sCat").textContent=cat(c.hi);
+    $("#upd").textContent=(c.src==="tri"?"Triangulated":"Outdoor only")+" · weather updated "+ago(Date.now()-c.at);
+    document.querySelector('meta[name="theme-color"]').content=LCOL[l];
+    if(lastLevel&&l!==lastLevel&&ORD.indexOf(l)>ORD.indexOf(lastLevel)) alertUp(l,c.hi);
+    lastLevel=l; S.set("lastLevel",l); S.set("source",source);
+  }
+  var q=quality(); $("#accBtn").dataset.q=q.q; $("#accText").textContent=q.text; renderStatus();
+  renderTri(c); renderHours(c);
+  var today=dkey(new Date()); $("#logCount").textContent=readings.filter(function(r){return r.date===today;}).length;
+}
+function renderHours(c){
+  if(!model||!model.hours||!model.hours.length){$("#hours").innerHTML='<span style="font-size:13px;color:var(--muted)">Forecast appears once the location is found.</span>';$("#hourInfo").textContent="";return;}
+  var now=localNow(), day=now.slice(0,10), nowH=now.slice(0,13), fetchedH=(Date.now()-model.at)/36e5, nowHr=+now.slice(11,13)+(+now.slice(14,16))/60;
+  var cal=(c&&c.src==="tri")?calibNow():null, html="", rows=[];
+  model.hours.forEach(function(x,i){
+    if(x.time.slice(0,10)!==day) return; var hr=+x.time.slice(11,13); if(hr<6||hr>18) return;
+    var v=corr(x.t,x.td,Math.max(0,hr-nowHr)+fetchedH), t=v.t, td=v.td;
+    if(cal){ t=t+cal.dT; td=Math.min(t,td+cal.dTd); }
+    var rh=rhFrom(t,td), r=cal?roomHI(t,rh):outdoorHI(t,rh), l=levelOf(r.hi); rows.push({i:i,hr:hr,t:t,rh:rh,hi:r.hi,l:l,spread:x.spread});
+    html+='<button class="hr '+l+(x.time.slice(0,13)===nowH?" now":"")+(selHour===i?" sel":"")+'" data-i="'+i+'" aria-label="'+hh(hr)+' heat index '+r.hi+'"><b>'+r.hi+'°</b>'+(hr===12?"12NN":(hr%12||12)+(hr<12?"a":"p"))+'</button>';
+  });
+  var box=$("#hours"); if(box.innerHTML!==html){ box.innerHTML=html; $$("#hours .hr").forEach(function(b){b.onclick=function(){selHour=(selHour===+b.dataset.i)?null:+b.dataset.i;render();};}); }
+  if(!box.dataset.scrolled){var nb=$("#hours .now");if(nb){box.scrollLeft=Math.max(0,nb.offsetLeft-box.clientWidth/2);box.dataset.scrolled=1;}}
+  var sel=rows.filter(function(r){return r.i===selHour;})[0];
+  if(sel) $("#hourInfo").innerHTML="<b>"+hh(sel.hr)+"</b>: "+sel.t.toFixed(1)+" °C, "+Math.round(sel.rh)+"% → HI "+sel.hi+' °C <span class="pill '+sel.l+'">'+LV[sel.l].name+"</span> "+esc(LV[sel.l].say)+' <span style="color:var(--muted)">(models ±'+(sel.spread/2).toFixed(1)+"°)</span>";
+  else{ var cls=rows.filter(function(r){return r.hr>=7&&r.hr<=17;}), pk=cls.reduce(function(a,b){return !a||b.hi>a.hi?b:a;},null);
+    var ok=cls.filter(function(r){return r.hi<=32;}).map(function(r){return hh(r.hr);});
+    $("#hourInfo").innerHTML=pk?"Peak <b>"+pk.hi+" °C at "+hh(pk.hr)+"</b> ("+LV[pk.l].name+")."+(ok.length&&ok.length<cls.length?" Hinay or cooler at: "+ok.join(", ")+".":"")+(cal?" <i>(classroom estimate)</i>":""):""; }
+}
+
+/* ========== Alerts, wake lock ========== */
+function alertUp(l,hi){
+  if(!cfg.alerts) return; toast("Level up: "+LV[l].name+" ("+hi+" °C)");
+  try{ if(navigator.vibrate) navigator.vibrate([250,120,250]); }catch(e){}
+  if("Notification" in window&&Notification.permission==="granted"){ var o={body:"Heat index "+hi+" °C. "+LV[l].say,icon:"icons/icon-192.png",badge:"icons/favicon-48.png",tag:"alab"};
+    try{ (navigator.serviceWorker?navigator.serviceWorker.getRegistration():Promise.resolve(null)).then(function(reg){ if(reg) reg.showNotification("ALAB · "+LV[l].name,o); else new Notification("ALAB · "+LV[l].name,o); }); }catch(e){} }
+}
+var wl=null;
+function wake(){ try{ if(cfg.wake&&"wakeLock" in navigator&&!document.hidden){ navigator.wakeLock.request("screen").then(function(x){wl=x;}).catch(function(){}); } else if(!cfg.wake&&wl){ wl.release(); wl=null; } }catch(e){} }
+
+/* ========== Readings & log ========== */
+function slotNow(){var d=new Date(),m=d.getHours()*60+d.getMinutes();return Math.abs(m-480)<=60?"0800H":Math.abs(m-720)<=45?"1200H":Math.abs(m-840)<=45?"1400H":"Other";}
+function addReading(o){
+  var r=o.src==="outdoor"?Object.assign(outdoorHI(o.t,o.rh),{T:Math.round(o.t),R:Math.round(o.rh)}):roomHI(o.t,o.rh), d=new Date();
+  readings.push({id:d.getTime(),ts:d.getTime(),date:dkey(d),time:fmtTime(d),slot:slotNow(),room:o.room||"",src:o.src,rawT:o.t,rawRH:o.rh,T:r.T,R:r.R,hi:r.hi,level:levelOf(r.hi)});
+  if(readings.length>2000) readings=readings.slice(-2000);
+  S.set("readings",readings); render();
+}
+var SRC={outdoor:"outdoor (live)",room:"classroom estimate",manual:"thermometer",tri:"triangulated"};
+function renderLog(){
+  var rs=readings.slice().sort(function(a,b){return b.ts-a.ts;}).slice(0,60);
+  $("#logList").innerHTML=rs.length?rs.map(function(r){return '<div class="it"><div class="t"><b>'+esc(r.room||"Outdoor")+'</b> · '+r.slot+'<br><span style="color:var(--muted);font-size:12px">'+new Date(r.ts).toLocaleDateString([],{month:"short",day:"numeric"})+' '+esc(r.time)+' · '+r.rawT.toFixed(1)+' °C, '+Math.round(r.rawRH)+'% · '+(SRC[r.src]||r.src)+'</span></div><div style="text-align:right"><b>'+r.hi+'°</b><br><span class="pill '+r.level+'">'+LV[r.level].name+'</span></div><button class="x" data-del="'+r.id+'" aria-label="Delete">✕</button></div>';}).join(""):"<p>No readings yet. Tap “Save this reading” on the main screen.</p>";
+  $$("#logList [data-del]").forEach(function(b){b.onclick=function(){readings=readings.filter(function(r){return String(r.id)!==b.dataset.del;});S.set("readings",readings);renderLog();render();};});
+}
+function copyText(txt){
+  if(navigator.clipboard&&navigator.clipboard.writeText) return navigator.clipboard.writeText(txt);
+  return new Promise(function(res,rej){var ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy")?res():rej();}catch(e){rej(e);}ta.remove();});
+}
+$("#copyDay").onclick=function(){var t=dkey(new Date()),rs=readings.filter(function(r){return r.date===t;}).sort(function(a,b){return a.ts-b.ts;});if(!rs.length){toast("No readings today");return;}
+  var txt=["Classroom Heat Index Monitoring (ALAB): "+(cfg.school||"(school)")+(cfg.schoolId?" ("+cfg.schoolId+")":""),"Date: "+t,"Location: "+(placeName||cfg.place||"")].concat(rs.map(function(r){return r.slot+" | "+(r.room||"Outdoor")+" | "+r.rawT.toFixed(1)+" °C, "+Math.round(r.rawRH)+"% RH | HI "+r.hi+" °C ("+cat(r.hi)+") | "+LV[r.level].name+" | "+(SRC[r.src]||r.src);})).join("\n");
+  copyText(txt).then(function(){toast("Copied. Paste it into the DRRMS form.");},function(){toast("Copy not allowed on this browser");});};
+$("#csv").onclick=function(){if(!readings.length){toast("No readings yet");return;}
+  var q=function(v){return '"'+String(v==null?"":v).replace(/"/g,'""')+'"';},head=["School","School ID","Date","Time","Slot","Room","Source","Temp_C","RH","Temp_C_chart","RH_chart","Heat_Index_C","PAGASA","4H"];
+  var body=readings.slice().sort(function(a,b){return a.ts-b.ts;}).map(function(r){return [cfg.school,cfg.schoolId,r.date,r.time,r.slot,r.room,SRC[r.src]||r.src,r.rawT.toFixed(1),Math.round(r.rawRH),r.T,r.R,r.hi,cat(r.hi),LV[r.level].name].map(q).join(",");});
+  var a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+[head.join(",")].concat(body).join("\r\n")],{type:"text/csv"}));a.download="alab-heat-readings-"+dkey(new Date())+".csv";document.body.appendChild(a);a.click();a.remove();};
+
+/* ========== Manual reading + calibration ========== */
+function mCalc(){var t=parseFloat($("#mT").value),rh=parseFloat($("#mRH").value);
+  if(isNaN(t)||isNaN(rh)||rh<1||rh>100){$("#mPrev").textContent="Type the readings to see the 4H level.";$("#mUse").disabled=true;return null;}
+  var tc=unit==="F"?(t-32)*5/9:t; if(tc<15||tc>50){$("#mPrev").textContent="That temperature looks off. Check °C/°F.";$("#mUse").disabled=true;return null;}
+  var r=roomHI(tc,rh),l=levelOf(r.hi),o=outdoorNow();
+  $("#mPrev").innerHTML=(unit==="F"?t+" °F = "+tc.toFixed(1)+" °C · ":"")+"Chart: "+r.T+" °C at "+r.R+'% → <b>HI '+r.hi+' °C</b> <span class="pill '+l+'">'+LV[l].name+"</span><br>"+esc(LV[l].say)+(o?'<br><span style="color:var(--muted);font-size:12.5px">Room vs outdoor right now: '+(tc-o.t>=0?"+":"")+(tc-o.t).toFixed(1)+" °C</span>":"");
+  $("#mUse").disabled=false; return {tc:tc,rh:rh};}
+["#mT","#mRH"].forEach(function(s){$(s).addEventListener("input",mCalc);});
+$$("#unit button").forEach(function(b){b.onclick=function(){unit=b.dataset.u;$$("#unit button").forEach(function(x){x.classList.toggle("on",x===b);});mCalc();};});
+$("#mUse").onclick=function(){var v=mCalc();if(!v)return;var room=$("#mRoom").value.trim(), today=dkey(new Date());
+  manual={t:v.tc,rh:v.rh,room:room,at:Date.now()};S.set("manual",manual);cfg.room=room;S.set("cfg",cfg);
+  var o=outdoorNow(); if(o){ calibs=calibs.filter(function(x){return x.date===today;}); calibs.push({date:today,dT:clamp(v.tc-o.t,-3,12),dTd:clamp(dew(v.tc,v.rh)-o.td,-6,8),room:room,at:Date.now()}); S.set("calibs",calibs); }
+  addReading({t:v.tc,rh:v.rh,room:room,src:"manual"}); source="tri";
+  $("#mT").value="";$("#mRH").value="";mCalc(); closeSheets(); render(); toast("Saved. Decision re-triangulated with this reading.");};
+
+/* ========== Sheets ========== */
+var lastFocus=null;
+function openSheet(id){closeSheets(true);lastFocus=document.activeElement;$("#scrim").classList.add("show");$(id).classList.add("show");}
+function closeSheets(keep){$$(".sheet").forEach(function(s){s.classList.remove("show");});if(!keep){$("#scrim").classList.remove("show");if(lastFocus&&lastFocus.focus)lastFocus.focus();}}
+$("#scrim").onclick=function(){closeSheets();};
+$$(".sheet .grab").forEach(function(g){g.onclick=function(){closeSheets();};});
+document.addEventListener("keydown",function(e){if(e.key==="Escape")closeSheets();});
+$$("#src button").forEach(function(b){b.onclick=function(){
+  var s=b.dataset.s;
+  if(s==="outdoor"||s==="tri"){source=s;render();}
+  if(s==="manual") openReading();
+};});
+$("#saveBtn").onclick=function(){var c=current();if(!c){toast("No reading yet");return;}
+  var d=new Date(), lv=levelOf(c.hi);
+  if(c.src==="tri"){ var T=c.tri; readings.push({id:d.getTime(),ts:d.getTime(),date:dkey(d),time:fmtTime(d),slot:slotNow(),room:"Triangulated ("+["class","station","models"].filter(function(k){return T.rows[k]&&!T.rows[k].derived;}).map(function(k){return (k==="class"?"class ":k==="station"?"stn ":"model ")+T.rows[k].hi;}).join(", ")+")",src:"tri",rawT:c.t,rawRH:c.rh,T:Math.round(c.t),R:Math.round(c.rh),hi:c.hi,level:lv});
+    if(readings.length>2000) readings=readings.slice(-2000); S.set("readings",readings); render(); }
+  else addReading({t:c.t,rh:c.rh,room:"Outdoor",src:c.src});
+  toast("Saved: "+LV[lv].name+" ("+c.hi+" °C)");};
+$("#openLog").onclick=function(){renderLog();openSheet("#sheetLog");};
+$("#accBtn").onclick=function(){renderAcc();openSheet("#sheetAcc");};
+$("#refresh").onclick=function(){ if(cfg.useGps&&(!pos||pos.kind==="ip")) startGps(); refreshAll(true); };
+$("#locPill").onclick=function(){fillSettings();openSheet("#sheetSettings");};
+
+/* ========== Settings ========== */
+function fillSettings(){$("#schName").value=cfg.school;$("#schId").value=cfg.schoolId;$("#useGps").checked=cfg.useGps;$("#manualLoc").hidden=cfg.useGps;$("#wake").checked=cfg.wake;$("#alerts").checked=cfg.alerts;$("#saver").checked=cfg.saver;$("#wake").disabled=!("wakeLock" in navigator);}
+$("#openSettings").onclick=function(){fillSettings();openSheet("#sheetSettings");};
+$("#useGps").onchange=function(e){$("#manualLoc").hidden=e.target.checked;};
+function search(){var q=$("#place").value.trim();if(q.length<2)return;$("#placeRes").innerHTML="<button disabled>Searching…</button>";
+  getJSON("https://geocoding-api.open-meteo.com/v1/search?count=6&language=en&countryCode=PH&name="+encodeURIComponent(q),10000).then(function(j){var res=j.results||[];
+   $("#placeRes").innerHTML=res.length?res.map(function(p,i){return '<button data-i="'+i+'"><b>'+esc(p.name)+'</b> <span style="color:var(--muted)">'+esc([p.admin2,p.admin1].filter(Boolean).join(", "))+'</span></button>';}).join(""):"<button disabled>No matches</button>";
+   $$("#placeRes [data-i]").forEach(function(b){b.onclick=function(){var p=res[+b.dataset.i];cfg.lat=p.latitude;cfg.lon=p.longitude;cfg.place=[p.name,p.admin2||p.admin1].filter(Boolean).join(", ");$("#placeRes").innerHTML="<button disabled>✓ "+esc(cfg.place)+"</button>";};});
+  }).catch(function(){$("#placeRes").innerHTML="<button disabled>Search failed (offline?)</button>";});}
+$("#placeGo").onclick=search; $("#place").addEventListener("keydown",function(e){if(e.key==="Enter")search();});
+$("#saveSettings").onclick=function(){
+  cfg.school=$("#schName").value.trim();cfg.schoolId=$("#schId").value.trim();cfg.wake=$("#wake").checked;cfg.alerts=$("#alerts").checked;
+  var saverChanged=cfg.saver!==$("#saver").checked; cfg.saver=$("#saver").checked;
+  var gps=$("#useGps").checked; if(!gps&&cfg.lat==null){toast("Search and pick your city first");return;}
+  var changed=gps!==cfg.useGps; cfg.useGps=gps; S.set("cfg",cfg);
+  if(cfg.alerts&&"Notification" in window&&Notification.permission==="default"){try{Notification.requestPermission();}catch(e){}}
+  wake(); closeSheets();
+  if(gps){ if(changed||watchId==null) startGps(); else if(saverChanged) refreshAll(true); } else { stopGps(); placeName=cfg.place; model=null; refreshAll(true); }
+  setLocPill(); render();
+};
+
+/* ========== Install ========== */
+var deferred=null, isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+var standalone=(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)||navigator.standalone;
+addEventListener("beforeinstallprompt",function(e){e.preventDefault();deferred=e;});
+$("#installBtn").onclick=function(){
+  if(standalone){toast("Already installed");return;}
+  if(deferred){deferred.prompt();deferred.userChoice.then(function(){deferred=null;});return;}
+  var h=$("#installHelp"); h.hidden=false;
+  h.innerHTML=isIOS?"On iPhone/iPad: tap <b>Share</b> in Safari, then <b>Add to Home Screen</b>.":"Use your browser menu: <b>Install app</b> or <b>Add to Home screen</b> (Chrome, Edge, Samsung Internet). On a computer, click the install icon in the address bar.";
+};
+if("serviceWorker" in navigator&&location.protocol!=="file:") navigator.serviceWorker.register("sw.js").catch(function(){});
+
+/* ========== Lifecycle: pause when hidden (battery), adapt to data saver ========== */
+function refreshEvery(){return (cfg.saver?20:10)*60000;}
+setInterval(function(){ if(document.hidden) return; if(!model||Date.now()-model.at>refreshEvery()) refreshAll(); },60000);
+setInterval(function(){ if(!document.hidden) render(); },20000);
+setInterval(function(){ if(!document.hidden) renderStatus(); },1000);
+document.addEventListener("visibilitychange",function(){
+  if(document.hidden){ stopGps(); return; }
+  wake(); if(cfg.started&&cfg.useGps) startGps();
+  if(!model||Date.now()-model.at>5*60000) refreshAll(true); else render();
+});
+addEventListener("online",function(){refreshAll(true);});
+if(conn&&conn.addEventListener) conn.addEventListener("change",function(){ if(conn.saveData&&!cfg.saver){cfg.saver=true;S.set("cfg",cfg);} });
+
+function envCheck(){
+  var banner=function(h){$("#envNote").innerHTML=h?'<div class="banner">'+h+'</div>':"";};
+  var inFrame=false; try{ inFrame=window.self!==window.top; }catch(e){ inFrame=true; }
+  if(location.protocol==="file:") banner("<b>ALAB is opened as a file.</b> Browsers block live data and location for files. Open it from its <b>https web link</b> (host the folder on Netlify or GitHub Pages; see README) to get live data.");
+  else if(!window.isSecureContext) banner("<b>This page is not secure (http).</b> Location needs an <b>https</b> link. Weather may still load.");
+  else if(inFrame) banner("<b>ALAB is running inside a preview.</b> Previews may block live data. Open the app's own https link in a browser tab.");
+}
+function launch(){
+  $("#start").classList.remove("show"); $("#app").classList.remove("hide"); envCheck();
+  cfg.started=true; S.set("cfg",cfg); fillSettings(); render(); wake();
+  if(cfg.useGps) startGps(); else { setLocPill(); refreshAll(true); }
+}
+$("#startBtn").onclick=launch;
+$("#startManual").onclick=function(e){e.preventDefault();cfg.useGps=false;S.set("cfg",cfg);$("#start").classList.remove("show");$("#app").classList.remove("hide");fillSettings();setLocPill();openSheet("#sheetSettings");};
+if(cfg.started) launch(); else $("#start").classList.add("show");
+</script>
+</body>
+</html>
