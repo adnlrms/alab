@@ -106,6 +106,7 @@ a{color:var(--blue2)} @media (prefers-color-scheme:dark){a{color:#5cc8f7}}
 .leg.off{opacity:.55}.leg.off .wb{display:none}
 .leg button{all:unset;cursor:pointer;color:var(--blue2);font-weight:700}
 .agree{margin-top:8px;font-size:13px;font-weight:700;padding:7px 10px;border-radius:10px}
+.agree button{all:unset;cursor:pointer;color:var(--blue2);font-weight:800;text-decoration:underline}
 .agree.ok{background:rgba(31,157,85,.12);color:#1b7a43}.agree.split{background:rgba(252,148,1,.15);color:#8a4b00}.agree.bad{background:rgba(196,18,15,.12);color:var(--red)}
 @media (prefers-color-scheme:dark){.agree.ok{color:#5fd193}.agree.split{color:#ffc266}.agree.bad{color:#ff7a70}}
 .acc-btn{display:flex;align-items:center;gap:8px;margin:12px auto 0;background:var(--chip);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13px;text-align:left;width:100%}
@@ -290,6 +291,18 @@ table.t th{font-size:11.5px;color:var(--muted);text-transform:uppercase}
   <button class="btn big" id="mUse" style="margin-top:12px" disabled>Use this reading</button>
 </div>
 
+<div class="sheet" id="sheetPagasa" role="dialog" aria-label="PAGASA forecast">
+  <button class="grab" aria-label="Close"></button>
+  <h3>PAGASA heat index forecast</h3>
+  <p>Used when no weather station is near you. Open PAGASA's <b>iHeatMAP</b>, choose your province and municipality, and type the heat index shown for the <b>current hour</b>. It stays valid for 90 minutes.</p>
+  <p><a href="https://src.panahon.gov.ph/pubfiles/cad/iaas/ihif_new" target="_blank" rel="noopener">Open PAGASA iHeatMAP ↗</a> · <a href="https://www.pagasa.dost.gov.ph/weather/heat-index" target="_blank" rel="noopener">PAGASA heat index page ↗</a></p>
+  <p style="font-size:12.5px;color:var(--muted)">iHeatMAP is published mainly during the hot season. If it shows no data, ALAB keeps using ECMWF automatically.</p>
+  <label for="pgHI">Heat index for this hour (°C)</label>
+  <input id="pgHI" type="number" inputmode="numeric" step="1" min="20" max="60" placeholder="e.g., 38">
+  <div class="prev" id="pgPrev"></div>
+  <div class="row" style="margin-top:12px"><button class="btn" id="pgUse" style="flex:1">Use PAGASA value</button><button class="btn sec" id="pgClear">Clear</button></div>
+</div>
+
 <div class="sheet" id="sheetAcc" role="dialog" aria-label="Accuracy details">
   <button class="grab" aria-label="Close"></button>
   <h3>How accurate is this?</h3>
@@ -317,6 +330,9 @@ table.t th{font-size:11.5px;color:var(--muted);text-transform:uppercase}
     <div class="row"><input id="place" placeholder="Search city / municipality" style="flex:1"><button class="btn sec" id="placeGo">Search</button></div>
     <div class="results" id="placeRes"></div>
   </div>
+  <label for="relayUrl">PAGASA relay link (optional)</label>
+  <div class="row"><input id="relayUrl" placeholder="https://alab-pagasa.yourname.workers.dev" autocomplete="off" inputmode="url" style="flex:1"><button class="btn sec" id="relayTest" style="padding:10px 12px">Test</button></div>
+  <p id="relayMsg" style="font-size:12.5px;margin:6px 0 4px">Gives ALAB <b>live airport weather reports</b> and PAGASA's iHeatMAP forecast (when published). Setup: README → "ALAB relay".</p>
   <div class="switch"><span>Keep screen on (wall/desk monitor)</span><input type="checkbox" id="wake"></div>
   <div class="switch"><span>Vibrate &amp; notify when the level goes up</span><input type="checkbox" id="alerts" checked></div>
   <div class="switch"><span>Battery &amp; data saver<br><small style="color:var(--muted)">Refresh every 20 min, fewer models</small></span><input type="checkbox" id="saver"></div>
@@ -365,7 +381,7 @@ function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 var S={get:function(k,d){try{var v=localStorage.getItem("alab."+k);return v==null?d:JSON.parse(v)}catch(e){return d}},set:function(k,v){try{localStorage.setItem("alab."+k,JSON.stringify(v))}catch(e){}}};
 var conn=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
 var autoSaver=!!(conn&&(conn.saveData||/(^|-)2g/.test(conn.effectiveType||"")));
-var cfg=Object.assign({started:false,school:"",schoolId:"",useGps:true,lat:null,lon:null,place:"",wake:false,alerts:true,room:"",saver:autoSaver},S.get("cfg",{}));
+var cfg=Object.assign({relay:"https://alab-relay.agnor-lrmc.workers.dev",started:false,school:"",schoolId:"",useGps:true,lat:null,lon:null,place:"",wake:false,alerts:true,room:"",saver:autoSaver},S.get("cfg",{}));
 var readings=S.get("readings",[]);
 var model=S.get("model",null), obsList=[], pos=null, placeName=S.get("placeName",""), geoAt=null;
 var calibs=S.get("calibs",[]);   // [{date,dT,dTd,room,at}]
@@ -386,7 +402,7 @@ function hh(h){return h===12?"12 NN":(h%12||12)+(h<12?" AM":" PM");}
 function fmtTime(ts){return new Date(ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});}
 
 /* Network: timeout + one retry (slow mobile data), with per-source diagnostics */
-var SRCSTAT={weather:{state:"pending"},stations:{state:"pending"},place:{state:"pending"},location:{state:"pending"}};
+var SRCSTAT={pagasa:{state:"none",msg:"not needed (stations nearby) or relay not set"},weather:{state:"pending"},stations:{state:"pending"},place:{state:"pending"},location:{state:"pending"}};
 function setSrc(k,state,msg){ SRCSTAT[k]={state:state,msg:msg||"",at:Date.now()}; }
 function why(e){
   if(!e) return "unknown error";
@@ -466,26 +482,43 @@ function parseCSVobs(txt){ // station,valid,tmpf,dwpf  (valid in UTC)
     var t=parseFloat(c[2]), d=parseFloat(c[3]); if(!isFinite(t)) return; last[c[0]]={valid:c[1],tmpf:t,dwpf:isFinite(d)?d:null}; });
   return last;
 }
+var iemCache=null;
+function obsRow(s,when,t,td,src){
+  if(!isFinite(when)||t==null||td==null||!isFinite(t)||!isFinite(td)||t<10||t>48) return null;
+  var age=(Date.now()-when)/60000; if(age>120||age<-10) return null;
+  td=Math.min(t,td); return {id:s.id,name:s.name,lat:s.lat,lon:s.lon,d:s.d,t:t,td:td,rh:rhFrom(t,td),at:when,ageMin:Math.max(0,age),src:src};
+}
 function loadObs(lat,lon){
   var cand=PH_STATIONS.map(function(s){return {id:s[0],name:s[1],lat:s[2],lon:s[3],d:km(lat,lon,s[2],s[3])};}).filter(function(s){return s.d<=120;}).sort(function(a,b){return a.d-b.d;}).slice(0,4);
   if(!cand.length){ setSrc("stations","none","no airport station within 120 km"); return Promise.resolve([]); }
-  var url="https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?"+cand.map(function(s){return "station="+s.id;}).join("&")+"&data=tmpf&data=dwpf&hours=3&tz=Etc/UTC&format=onlycomma&missing=empty&trace=empty&latlon=no";
-  return getRaw(url,10000,true).then(function(txt){
-    var last=parseCSVobs(txt), out=[];
-    cand.forEach(function(s){ var r=last[s.id]; if(!r) return;
-      var when=Date.parse(r.valid.replace(" ","T")+"Z"); if(!isFinite(when)) return;
-      var t=(r.tmpf-32)*5/9, td=r.dwpf!=null?(r.dwpf-32)*5/9:null; if(td==null||t<10||t>48) return;
-      var age=(Date.now()-when)/60000; if(age>120||age<-10) return;
-      out.push({id:s.id,name:s.name,lat:s.lat,lon:s.lon,d:s.d,t:t,td:Math.min(t,td),rh:rhFrom(t,Math.min(t,td)),at:when,ageMin:Math.max(0,age)}); });
-    setSrc("stations",out.length?"ok":"none",out.length?(out.length+" station(s) reporting: "+out.map(function(o){return o.id;}).join(", ")):"nearby stations have no report in the last 2 h");
-    return out.slice(0,3);
-  }).catch(function(e){ setSrc("stations","fail",why(e)); return []; });
+  var ids=cand.map(function(s){return s.id;}).join(",");
+  function done(out,label){ out=out.filter(Boolean).sort(function(a,b){return a.d-b.d;});
+    setSrc("stations",out.length?"ok":"none",out.length?(out.length+" station(s) reporting: "+out.map(function(o){return o.id+" ("+Math.round(o.ageMin)+" min ago)";}).join(", ")+" · "+label):"nearby stations ("+ids+") have no report in the last 2 h · "+label);
+    return out.slice(0,3); }
+  function viaIEM(){
+    if(iemCache&&iemCache.ids===ids&&Date.now()-iemCache.at<20*60000) return Promise.resolve(done(iemCache.rows.map(function(r){return obsRow(r.s,r.when,r.t,r.td,"IEM");}),"Iowa Environmental Mesonet (may be delayed)"));
+    var url="https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?"+cand.map(function(s){return "station="+s.id;}).join("&")+"&data=tmpf&data=dwpf&hours=3&tz=Etc/UTC&format=onlycomma&missing=empty&trace=empty&latlon=no";
+    return getRaw(url,10000,true).then(function(txt){
+      if(/too many requests/i.test(txt)) throw new Error("HTTP 429 (station service busy for this network)");
+      var last=parseCSVobs(txt), rows=[];
+      cand.forEach(function(s){ var r=last[s.id]; if(!r) return; rows.push({s:s,when:Date.parse(r.valid.replace(" ","T")+"Z"),t:(r.tmpf-32)*5/9,td:r.dwpf!=null?(r.dwpf-32)*5/9:null}); });
+      iemCache={ids:ids,at:Date.now(),rows:rows};
+      return done(rows.map(function(r){return obsRow(r.s,r.when,r.t,r.td,"IEM");}),"Iowa Environmental Mesonet (may be delayed)");
+    }); }
+  var p=cfg.relay
+    ? getJSON(cfg.relay+"?metar="+ids,10000).then(function(arr){
+        if(!Array.isArray(arr)) throw new Error("relay gave no station list");
+        var by={}; arr.forEach(function(r){ if(r&&r.icaoId&&(!by[r.icaoId]||r.obsTime>by[r.icaoId].obsTime)) by[r.icaoId]=r; });
+        return done(cand.map(function(s){ var r=by[s.id]; return r?obsRow(s,r.obsTime*1000,+r.temp,+r.dewp,"METAR"):null; }),"live airport reports (aviationweather.gov via your relay)");
+      }).catch(function(){ return viaIEM(); })
+    : viaIEM();
+  return p.catch(function(e){ setSrc("stations","fail",why(e)); return []; });
 }
 
 /* ========== Multi-model consensus (Open-Meteo) ========== */
 function omURL(lats,lons,models){   // models === null → plainest possible request (last-resort fallback)
   return "https://api.open-meteo.com/v1/forecast?latitude="+lats.join(",")+"&longitude="+lons.join(",")+
-    "&current=temperature_2m,relative_humidity_2m&hourly=temperature_2m,relative_humidity_2m&timezone=auto&forecast_days=2"+(models?"&cell_selection=land&models="+models.join(","):"");
+    "&current=temperature_2m,relative_humidity_2m&minutely_15=temperature_2m,relative_humidity_2m&past_minutely_15=4&forecast_minutely_15=8&hourly=temperature_2m,relative_humidity_2m&timezone=auto&forecast_days=2"+(models?"&cell_selection=land&models="+models.join(","):"");
 }
 function pickModels(block){var out={};Object.keys(block).forEach(function(k){var m=k.match(/^temperature_2m(?:_(.+))?$/);if(!m)return;var name=m[1]||"single",rk="relative_humidity_2m"+(m[1]?"_"+m[1]:"");if(block[rk]!=null)out[name]=[block[k],block[rk]];});return out;}
 function consensus(pairs){
@@ -494,6 +527,19 @@ function consensus(pairs){
   var his=ok.map(function(p){return hiC(p[0],p[1]);});
   return {t:t,td:Math.min(t,td),n:ok.length,spread:Math.max.apply(null,his)-Math.min.apply(null,his)};
 }
+/* Per-model values for THIS minute. Open-Meteo returns only one "current" value when several models are
+   requested, so each model's now-value is interpolated from its own 15-minute series (fallback: hourly, then current). */
+function nowPerModel(A){
+  var off=A.utc_offset_seconds||0, now=new Date(Date.now()+off*1000).toISOString().slice(0,16), nowMs=Date.parse(now+"Z");
+  function interp(block){ if(!block||!block.time||!block.time.length) return null;
+    var mm=pickModels(block), T=block.time, i=-1; for(var k=T.length-1;k>=0;k--){ if(T[k]<=now){i=k;break;} } if(i<0) return null;
+    var j=Math.min(i+1,T.length-1), ti=Date.parse(T[i]+"Z"), tj=Date.parse(T[j]+"Z"), f=(j===i||tj===ti)?0:clamp((nowMs-ti)/(tj-ti),0,1);
+    if(j===i&&nowMs-ti>3*3600000) return null;
+    var out={}; Object.keys(mm).forEach(function(n){ var a=mm[n][0], b=mm[n][1]; if(a[i]==null||b[i]==null) return;
+      var a2=a[j]!=null?a[j]:a[i], b2=b[j]!=null?b[j]:b[i]; out[n]=[a[i]+(a2-a[i])*f, b[i]+(b2-b[i])*f]; });
+    return Object.keys(out).length?out:null; }
+  return interp(A.minutely_15)||interp(A.hourly)||pickModels(A.current||{});
+}
 var okSet=null;   // model set that worked last time
 function fetchModel(lat,lon,sts){
   var lats=[lat.toFixed(4)],lons=[lon.toFixed(4)]; sts.forEach(function(s){lats.push(s.lat.toFixed(4));lons.push(s.lon.toFixed(4));});
@@ -501,11 +547,12 @@ function fetchModel(lat,lon,sts){
   function attempt(){ return getJSON(omURL(lats,lons,sets[i]),12000).then(function(j){okSet=sets[i];return j;}).catch(function(e){ if(++i<sets.length) return attempt(); throw e; }); }
   return attempt().then(function(j){
     var arr=Array.isArray(j)?j:[j], A=arr[0];
-    var cm=pickModels(A.current), names=Object.keys(cm), cur=consensus(names.map(function(n){return cm[n];}));
+    var cm=nowPerModel(A), names=Object.keys(cm), cur=consensus(names.map(function(n){return cm[n];}));
     var H=A.hourly, hm=pickModels(H), hn=Object.keys(hm), hours=[];
     for(var k=0;k<H.time.length;k++){ var c=consensus(hn.map(function(n){return [hm[n][0][k],hm[n][1][k]];})); if(c) hours.push({time:H.time[k],t:c.t,td:c.td,spread:c.spread}); }
-    var atSt=sts.map(function(s,idx){var B=arr[idx+1]; if(!B) return null; var bm=pickModels(B.current); return consensus(Object.keys(bm).map(function(n){return bm[n];}));});
-    return {at:Date.now(),lat:lat,lon:lon,off:A.utc_offset_seconds||0,time:A.current.time,cur:cur,
+    var atSt=sts.map(function(s,idx){var B=arr[idx+1]; if(!B) return null; var bm=nowPerModel(B); return consensus(Object.keys(bm).map(function(n){return bm[n];}));});
+    var lnow=new Date(Date.now()+(A.utc_offset_seconds||0)*1000).toISOString().slice(0,16);
+    return {at:Date.now(),lat:lat,lon:lon,off:A.utc_offset_seconds||0,time:lnow,cur:cur,
       models:names.map(function(n){return {name:n,t:cm[n][0],rh:cm[n][1]};}),hours:hours,atSt:atSt};
   });
 }
@@ -514,7 +561,7 @@ function modelAtStations(sts){
   if(!sts.length) return Promise.resolve([]);
   var sets=cfg.saver?MODEL_SETS.slice(1):MODEL_SETS, set=okSet||sets[0];
   return getJSON(omURL(sts.map(function(s){return s.lat.toFixed(4);}),sts.map(function(s){return s.lon.toFixed(4);}),set).replace(/&hourly=[^&]*/,""),12000).then(function(j){
-    var arr=Array.isArray(j)?j:[j]; return arr.map(function(B){var bm=pickModels(B.current);return consensus(Object.keys(bm).map(function(n){return bm[n];}));});
+    var arr=Array.isArray(j)?j:[j]; return arr.map(function(B){var bm=nowPerModel(B);return consensus(Object.keys(bm).map(function(n){return bm[n];}));});
   }).catch(function(){return [];});
 }
 /* Station correction: inverse-distance & age weighted, with outlier rejection */
@@ -539,7 +586,9 @@ function refreshAll(force){
   fetchModel(h.lat,h.lon,[]).then(function(m){
     var prev=model; m.bias=(prev&&prev.bias&&km(prev.lat,prev.lon,m.lat,m.lon)<2)?prev.bias:{dT:0,dTd:0,w:0,used:[]}; m.obs=(prev&&prev.obs)||[];
     model=m; S.set("model",model); setSrc("weather","ok",m.cur.n+" model"+(m.cur.n>1?"s":"")+" · Open-Meteo"); banner(""); render();
-    return obsP.then(function(o){ obsList=o; return modelAtStations(o).then(function(atSt){ m.atSt=atSt; m.bias=stationBias(m,o); m.obs=o; S.set("model",model); }); });
+    return obsP.then(function(o){ obsList=o;
+      var pg=(!o.length)?fetchPagasaAuto(h.lat,h.lon):Promise.resolve(setSrc("pagasa","none",o.length?"not needed: weather stations nearby":"relay not set"));
+      return Promise.all([pg,modelAtStations(o).then(function(atSt){ m.atSt=atSt; m.bias=stationBias(m,o); m.obs=o; S.set("model",model); })]); });
   }).catch(function(e){
     var r=why(e); setSrc("weather","fail",r);
     banner("<b>Can't get live weather data.</b> Reason: "+esc(r)+". "+(model?"Showing the last data from "+ago(Date.now()-model.at)+". ":"")+'<a href="#" onclick="testSources();return false">Test connections</a>');
@@ -555,7 +604,8 @@ function testSources(){
     ["Weather models (Open-Meteo)", getJSON("https://api.open-meteo.com/v1/forecast?latitude="+h.lat.toFixed(2)+"&longitude="+h.lon.toFixed(2)+"&current=temperature_2m",9000)],
     ["Weather stations (Iowa Environmental Mesonet)", getRaw("https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=RPLL&data=tmpf&hours=3&format=onlycomma",9000,true)],
     ["Place names (BigDataCloud)", getJSON("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=14.6&longitude=121&localityLanguage=en",9000)]
-  ];
+  ].concat(cfg.relay?[["Relay (PAGASA + live airport reports)", getJSON(cfg.relay+"?ping=1",9000).then(function(j){ if(!j||!j.metar) throw new Error("HTTP 4xx: relay is an older version. Paste the new worker.js"); return getJSON(cfg.relay+"?metar=RPLL",9000); })]]:[]).concat([
+  ]);
   Promise.all(tests.map(function(t){var s0=Date.now();return t[1].then(function(){return [t[0],true,(Date.now()-s0)+" ms"];},function(e){return [t[0],false,why(e)];});})).then(function(rs){
     var loc=!("geolocation" in navigator)?[ "Device location", false, "not supported on this browser"]:[ "Device location", !!(pos&&pos.kind==="gps"), pos?(pos.kind==="gps"?"OK, ±"+Math.round(pos.acc)+" m":"using approximate network location (permission off or no fix)"):(window.isSecureContext?"waiting for permission/fix":"needs a secure https link")];
     rs.push(loc);
@@ -613,7 +663,7 @@ function renderAcc(){
     } else h+='<p style="margin-top:12px"><b>Weather stations:</b> none within 120 km reported in the last 2 hours, so no correction is applied.</p>';
   }
   var hr=here(), c=calibNow();
-  h+='<p style="margin-top:12px"><b>Data sources</b></p><table class="t">'+[["Weather models","weather"],["Weather stations","stations"],["Place names","place"]].map(function(x){var st=SRCSTAT[x[1]]||{};return '<tr><td>'+(st.state==="ok"?"✅":st.state==="fail"?"❌":st.state==="none"?"➖":"⏳")+'</td><td>'+x[0]+'<br><span style="color:var(--muted)">'+esc(st.msg||"waiting")+'</span></td></tr>';}).join("")+'</table>';
+  h+='<p style="margin-top:12px"><b>Data sources</b></p><table class="t">'+[["Weather models","weather"],["Weather stations","stations"],["PAGASA iHeatMAP (relay)","pagasa"],["Place names","place"]].map(function(x){var st=SRCSTAT[x[1]]||{};return '<tr><td>'+(st.state==="ok"?"✅":st.state==="fail"?"❌":st.state==="none"?"➖":"⏳")+'</td><td>'+x[0]+'<br><span style="color:var(--muted)">'+esc(st.msg||"waiting")+'</span></td></tr>';}).join("")+'</table>';
   h+='<div id="srcTest" style="margin-top:8px"></div><button class="btn sec" style="margin-top:8px;width:100%" onclick="testSources()">Test connections</button>';
   h+='<p><b>Location:</b> '+(hr?(hr.kind==="gps"?"device location, ±"+Math.round(hr.acc)+" m":hr.kind==="ip"?"approximate (internet network). Allow location for better accuracy":"fixed city: "+esc(cfg.place)):"unknown")+'.</p>';
   h+='<p><b>Classroom:</b> '+(c?'calibrated from '+c.n+' reading'+(c.n>1?'s':'')+' in '+esc(c.room||"a room")+', latest at '+fmtTime(c.at)+' (room vs outdoor: '+(c.dT>=0?"+":"")+c.dT.toFixed(1)+' °C).':'not calibrated today. Enter one thermometer reading to get a live classroom estimate.')+'</p>';
@@ -648,16 +698,28 @@ function shiftToRoom(t,td,cal){ if(!cal) return {t:t,td:td}; var T=t+cal.dT; ret
 function triangulate(){
   var mAge=manual?(Date.now()-manual.at)/60000:1e9, fresh=!!manual&&mAge<=120;
   var cal=fresh?calibBefore(manual.at):calibNow();
-  var raw=baseNow(false), st=stationNow(), legs=[], rows={};
-  // 1) Outdoor check (unadjusted, independent)
-  var stO=st?outdoorHI(st.t,st.rh):null, mdO=raw?outdoorHI(raw.t,raw.rh):null;
-  var outdoor={state:(stO&&mdO)?(levelOf(stO.hi)===levelOf(mdO.hi)?"agree":"split"):(mdO?"models-only":(stO?"station-only":"none")),st:stO,md:mdO};
-  // outdoor legs, shifted to classroom conditions when an independent room offset exists
-  var room=!!cal;
+  var raw=baseNow(false), st=stationNow(), legs=[], rows={}, room=!!cal, pgs=pagasaNow();
+  // Reference leg = the independent outdoor check. Priority: measured weather stations →
+  // PAGASA forecast (entered from iHeatMAP) → ECMWF alone (the model PAGASA's iHeatMAP is built on).
+  var ref=null, mdRaw=raw, mdLabel="Weather models ("+(model&&model.cur?model.cur.n:0)+")";
+  var hiShift=function(){ if(!room||!raw) return 0; var v=shiftToRoom(raw.t,raw.td,cal); return roomHI(v.t,rhFrom(v.t,v.td)).exact-outdoorHI(raw.t,raw.rh).exact; };
   if(st){ var vs=shiftToRoom(st.t,st.td,cal), rs=rhFrom(vs.t,vs.td), r2=room?roomHI(vs.t,rs):outdoorHI(vs.t,rs);
-    rows.station={k:"station",label:"Weather station"+(st.n>1?"s ("+st.n+")":""),detail:st.names.join(", ")+" · "+Math.round(st.nearest.d)+" km · measured "+Math.round(st.ageMin)+" min ago"+(room?" · room-adjusted":" · outdoor"),t:vs.t,rh:rs,exact:r2.exact,hi:r2.hi,w:0.3*st.w}; legs.push(rows.station); }
-  if(raw){ var vm=shiftToRoom(raw.t,raw.td,cal), rm=rhFrom(vm.t,vm.td), r3=room?roomHI(vm.t,rm):outdoorHI(vm.t,rm);
-    rows.models={k:"models",label:"Weather models ("+model.cur.n+")",detail:"median forecast here"+(room?" · room-adjusted":" · outdoor"),t:vm.t,rh:rm,exact:r3.exact,hi:r3.hi,w:0.2*(model.cur.spread<=2?1:0.6)}; legs.push(rows.models); }
+    ref={k:"station",name:"Station",label:"Weather station"+(st.n>1?"s ("+st.n+")":""),detail:st.names.join(", ")+" · "+Math.round(st.nearest.d)+" km · measured "+Math.round(st.ageMin)+" min ago"+(room?" · room-adjusted":" · outdoor"),t:vs.t,rh:rs,exact:r2.exact,hi:r2.hi,w:0.3*st.w,outHI:outdoorHI(st.t,st.rh),measured:true}; }
+  else if(pgs){ var ex0=pgs.hi+hiShift();
+    ref={k:"pagasa",name:"PAGASA",label:"PAGASA forecast",detail:(pgs.auto?pgs.src:"entered "+fmtTime(pgs.at)+" from "+pgs.src)+(room?" · room-adjusted":" · outdoor"),t:null,rh:null,exact:ex0,hi:Math.round(ex0),w:0.3,outHI:{hi:Math.round(pgs.hi),exact:pgs.hi}}; }
+  else if(model&&model.models){
+    var ec=model.models.filter(function(m){return m.name==="ecmwf_ifs025";})[0], others=model.models.filter(function(m){return m.name!=="ecmwf_ifs025";});
+    if(ec&&others.length>=2){ var c2=consensus(others.map(function(m){return [m.t,m.rh];}));
+      var etd=Math.min(ec.t,dew(ec.t,ec.rh)), ve=shiftToRoom(ec.t,etd,cal), re=rhFrom(ve.t,ve.td), r4=room?roomHI(ve.t,re):outdoorHI(ve.t,re);
+      ref={k:"ecmwf",name:"ECMWF",label:"ECMWF (PAGASA's forecast model)",detail:"no weather station within 120 km"+(room?" · room-adjusted":" · outdoor"),t:ve.t,rh:re,exact:r4.exact,hi:r4.hi,w:0.25,outHI:outdoorHI(ec.t,ec.rh)};
+      mdRaw={t:c2.t,td:c2.td,rh:rhFrom(c2.t,c2.td)}; mdLabel="Other weather models ("+others.length+")"; }
+  }
+  // 1) Outdoor check (unadjusted values, independent sources)
+  var refO=ref?ref.outHI:null, mdO=mdRaw?outdoorHI(mdRaw.t,mdRaw.rh):null;
+  var outdoor={state:(refO&&mdO)?((levelOf(refO.hi)===levelOf(mdO.hi)&&Math.abs(refO.exact-mdO.exact)<=3)?"agree":"split"):(mdO?"models-only":(refO?"ref-only":"none")),ref:refO?{name:ref.name,hi:refO.hi,k:ref.k}:null,md:mdO?{name:ref&&ref.k==="ecmwf"?"other models":"models",hi:mdO.hi}:null};
+  if(ref){ rows.ref=ref; legs.push(ref); }
+  if(mdRaw){ var vm=shiftToRoom(mdRaw.t,mdRaw.td,cal), rm=rhFrom(vm.t,vm.td), r3=room?roomHI(vm.t,rm):outdoorHI(vm.t,rm);
+    rows.models={k:"models",label:mdLabel,detail:"median forecast here"+(room?" · room-adjusted":" · outdoor"),t:vm.t,rh:rm,exact:r3.exact,hi:r3.hi,w:0.2*(model.cur.spread<=2?1:0.6)}; legs.push(rows.models); }
   // prediction of the classroom from outdoor legs alone (used for the classroom check)
   var pw=0,pe=0; legs.forEach(function(l){pw+=l.w;pe+=l.w*l.exact;}); var pred=pw?pe/pw:null;
   // 2) Classroom leg
@@ -674,13 +736,13 @@ function triangulate(){
   else if(thermo){ ex=thermo.exact; reason="thermometer-only"; legs=[thermo].concat(legs.map(function(l){var c=Object.assign({},l);c.w=0;return c;})); }
   else if(pred!=null){ ex=pred; }
   else return null;
-  var tot=0; legs.forEach(function(l){tot+=l.w;}); legs.forEach(function(l){l.share=tot?l.w/tot:0;l.level=levelOf(l.hi); if(rows[l.k]&&rows[l.k]!==l) rows[l.k].share=l.share;});
+  var tot=0; legs.forEach(function(l){tot+=l.w;}); legs.forEach(function(l){l.share=tot?l.w/tot:0;l.level=levelOf(l.hi); var rk=(l.k==="station"||l.k==="pagasa"||l.k==="ecmwf")?"ref":l.k; if(rows[rk]&&rows[rk]!==l) rows[rk].share=l.share;});
   Object.keys(rows).forEach(function(k){rows[k].level=levelOf(rows[k].hi); if(rows[k].share==null) rows[k].share=0;});
   var hi=Math.round(ex), level=levelOf(hi);
   if(thermo&&(ORD.indexOf(levelOf(thermo.hi))>ORD.indexOf(level)||cls.state==="hotter")){ level=levelOf(thermo.hi); hi=thermo.hi; ex=thermo.exact; reason="thermometer"; }   // precaution: a hotter-than-predicted room is taken at its measured value
-  var verified=(outdoor.state==="agree"||outdoor.state==="station-only")&&(cls.state==="consistent"||cls.state==="first"||cls.state==="estimate"||(cls.state==="none"&&outdoor.state==="agree"));
-  var nsrc=(thermo?1:0)+(st?1:0)+(raw?1:0);
-  var lead=thermo||rows.station||rows.models;
+  var verified=(outdoor.state==="agree"||outdoor.state==="ref-only")&&(cls.state==="consistent"||cls.state==="first"||cls.state==="estimate"||(cls.state==="none"&&outdoor.state==="agree"));
+  var nsrc=(thermo?1:0)+(ref?1:0)+(rows.models?1:0);
+  var lead=thermo||(ref&&ref.t!=null?ref:null)||rows.models||ref;
   return {legs:legs,rows:rows,exact:ex,hi:hi,level:level,reason:reason,outdoor:outdoor,cls:cls,room:room,verified:verified,nsrc:nsrc,lead:lead};
 }
 function renderTri(c){
@@ -688,7 +750,9 @@ function renderTri(c){
   var T=c.tri, R=T.rows;
   var IC={"class":'<path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M12 11v5"/><circle cx="12" cy="17.5" r="1.5"/>',
           station:'<path d="M12 21V9"/><path d="M8 21h8"/><path d="M7.5 6.5a6 6 0 0 1 9 0M5 4a10 10 0 0 1 14 0"/><circle cx="12" cy="9" r="1.6"/>',
-          models:'<path d="M7 18a4 4 0 0 1-.5-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 17.5 18z"/>'};
+          models:'<path d="M7 18a4 4 0 0 1-.5-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 17.5 18z"/>',
+          pagasa:'<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+          ecmwf:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'};
   var row=function(k,l,off){
     var ic='<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'+IC[k]+'</svg></span>';
     if(off) return '<div class="leg off">'+ic+'<div class="lt"><b>'+off[0]+'</b><small>'+esc(off[1])+'</small></div><div class="lv">'+(off[2]||"—")+'</div></div>';
@@ -697,13 +761,13 @@ function renderTri(c){
   };
   var h='<h4>Triangulated decision · '+T.nsrc+' independent source'+(T.nsrc===1?'':'s')+' · bar = weight</h4>';
   h+=R["class"]?row("class",R["class"]):row("class",null,["Classroom thermometer","No reading in the last 2 h",'<button onclick="openReading()">Add reading</button>']);
-  h+=R.station?row("station",R.station):row("station",null,["Weather station",(SRCSTAT.stations&&SRCSTAT.stations.msg)||"none within 120 km"]);
+  h+=R.ref?row(R.ref.k,R.ref):row("station",null,["Weather station",(SRCSTAT.stations&&SRCSTAT.stations.msg)||"none within 120 km",'<button onclick="openPagasa()">Add PAGASA</button>']);
   h+=R.models?row("models",R.models):row("models",null,["Weather models","waiting for data"]);
   var O=T.outdoor, C=T.cls, lines=[];
   // outdoor check
-  if(O.state==="agree") lines.push(["ok","✓ Outdoor check: station and models agree ("+LV[levelOf(O.st.hi)].name+", "+O.st.hi+"° vs "+O.md.hi+"°)"]);
-  else if(O.state==="split") lines.push(["split","Outdoor check: station "+O.st.hi+"° ("+LV[levelOf(O.st.hi)].name+") vs models "+O.md.hi+"° ("+LV[levelOf(O.md.hi)].name+"). The measured station gets more weight"]);
-  else if(O.state==="models-only") lines.push(["split","Outdoor check: models only (no station reporting nearby)"]);
+  if(O.state==="agree") lines.push(["ok","✓ Outdoor check: "+O.ref.name+" and "+O.md.name+" agree ("+LV[levelOf(O.ref.hi)].name+", "+O.ref.hi+"° vs "+O.md.hi+"°)"]);
+  else if(O.state==="split") lines.push(["split","Outdoor check: "+O.ref.name+" "+O.ref.hi+"° ("+LV[levelOf(O.ref.hi)].name+") vs "+O.md.name+" "+O.md.hi+"° ("+LV[levelOf(O.md.hi)].name+"), "+Math.abs(O.ref.hi-O.md.hi)+"° apart. "+(O.ref.k==="station"?"The measured station gets more weight":O.ref.k==="pagasa"?"PAGASA's forecast gets more weight":"Weighted")]);
+  else if(O.state==="models-only") lines.push(["split","Outdoor check: models only (no independent source available)"]);
   // classroom check
   if(C.state==="consistent") lines.push(["ok","✓ Classroom check: thermometer matches the prediction from outdoor data ("+LV[T.rows["class"].level].name+", within "+Math.abs(C.diff).toFixed(1)+"°)"]);
   else if(C.state==="hotter") lines.push(["bad","Classroom check: thermometer reads "+C.diff.toFixed(1)+"° hotter than predicted ("+C.pred+"°). Using the thermometer; check ventilation and room occupancy"]);
@@ -713,8 +777,56 @@ function renderTri(c){
   else lines.push(["split","No classroom reading today: this is the OUTDOOR heat. Classrooms can be hotter, so add a thermometer reading"]);
   if(T.reason==="thermometer") lines.push(["bad","Decision uses the thermometer value ("+T.hi+"°, "+LV[T.level].name+"). The classroom thermometer is the memo's basis for suspension"]);
   h+=lines.map(function(x){return '<div class="agree '+x[0]+'">'+esc(x[1])+'</div>';}).join("");
+  if(R.ref&&R.ref.k==="ecmwf") h+='<div class="agree split">No weather station within 120 km, so ALAB cross-checks with ECMWF (the model behind PAGASA\'s iHeatMAP). For PAGASA\'s own number, <button onclick="openPagasa()">enter PAGASA\'s forecast</button>.</div>';
+  else if(R.ref&&R.ref.k==="pagasa"){ var pn=pagasaNow(); h+=pn.auto?'<div class="agree ok">✓ PAGASA iHeatMAP read automatically for your location (via your relay).</div>':'<div class="agree ok">Using PAGASA\'s forecast you entered (valid until '+fmtTime(pn.at+90*60000)+'). <button onclick="openPagasa()">Update</button></div>'; }
   box.innerHTML=h;
 }
+/* PAGASA forecast entered by the user (PAGASA files cannot be read by other websites, so the value is typed in) */
+function pagasaNow(){
+  var p=S.get("pagasa",null); if(p&&Date.now()-p.at<=90*60000) return p;                 // typed in by the user
+  var a=S.get("pagasaAuto",null);                                                        // read via the relay
+  if(a&&Date.now()-a.fetched<=90*60000&&Math.abs(Date.now()-a.validFor)<=75*60000) return {hi:a.hi,at:a.fetched,src:"iHeatMAP (auto, "+a.label+" forecast)",auto:true};
+  return null;
+}
+/* ===== PAGASA iHeatMAP via relay: download the hourly heat index GeoTIFF and read the value at this location ===== */
+function cleanRelay(v){ v=(v||"").trim().replace(/\/+$/,"").replace(/\?.*$/,""); if(!v) return ""; if(!/^https:\/\/[^\s]+$/i.test(v)) return false; return v; }
+var gtLoad=null;
+function loadGeoTIFF(){ if(window.GeoTIFF) return Promise.resolve(window.GeoTIFF); if(gtLoad) return gtLoad;
+  gtLoad=new Promise(function(res,rej){ var sc=document.createElement("script"); sc.src="lib/geotiff.min.js"; sc.onload=function(){res(window.GeoTIFF);}; sc.onerror=function(){gtLoad=null;rej(new Error("could not load the map reader"));}; document.head.appendChild(sc); });
+  return gtLoad; }
+function phNow(){ return new Date(Date.now()+8*3600000); }   // Philippine time (UTC+8, no daylight saving)
+function pagasaFile(){ var d=phNow(), h=d.getUTCHours()+(d.getUTCMinutes()>=30?1:0); if(h<8) h=8; if(h>18) return null;
+  var ds=d.getUTCFullYear()+pad(d.getUTCMonth()+1)+pad(d.getUTCDate());
+  var valid=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),h)-8*3600000;
+  return {f:"tif/hi/now/"+ds+"_"+pad(h)+"00.tif",validFor:valid,label:hh(h)}; }
+function sampleTiff(buf,lat,lon){
+  return loadGeoTIFF().then(function(GT){ return GT.fromArrayBuffer(buf); }).then(function(tiff){ return tiff.getImage(); }).then(function(img){
+    var bb=img.getBoundingBox(), W=img.getWidth(), Hh=img.getHeight(), gk=img.getGeoKeys?img.getGeoKeys():{}, x=lon, y=lat;
+    var pcs=gk&&gk.ProjectedCSTypeGeoKey; if(pcs===3857||pcs===900913||pcs===3785){ x=lon*20037508.34/180; y=Math.log(Math.tan((90+lat)*Math.PI/360))/(Math.PI/180)*20037508.34/180; }
+    var px=Math.floor((x-bb[0])/(bb[2]-bb[0])*W), py=Math.floor((bb[3]-y)/(bb[3]-bb[1])*Hh);
+    if(px<0||py<0||px>=W||py>=Hh) throw new Error("your location is outside PAGASA's map");
+    var nd=img.getGDALNoData?img.getGDALNoData():null, x0=Math.max(0,px-1), y0=Math.max(0,py-1), x1=Math.min(W,px+2), y1=Math.min(Hh,py+2);
+    return img.readRasters({window:[x0,y0,x1,y1],samples:[0]}).then(function(r){
+      var v=Array.prototype.slice.call(r[0]).filter(function(z){return isFinite(z)&&z!==nd&&z>=15&&z<=70;});
+      if(!v.length) throw new Error("no heat index value at your location");
+      var center=r[0][(py-y0)*(x1-x0)+(px-x0)];                                   // prefer the exact cell; else neighbours' median
+      return (isFinite(center)&&center!==nd&&center>=15&&center<=70)?center:median(v);
+    });
+  });
+}
+function fetchPagasaAuto(lat,lon){
+  if(!cfg.relay){ setSrc("pagasa","none","no station nearby · relay not set (Settings)"); return Promise.resolve(); }
+  var pf=pagasaFile(); if(!pf){ setSrc("pagasa","none","PAGASA forecasts cover 8 AM–6 PM only"); return Promise.resolve(); }
+  var a=S.get("pagasaAuto",null); if(a&&a.f===pf.f&&Math.abs(a.lat-lat)<0.05&&Math.abs(a.lon-lon)<0.05&&Date.now()-a.fetched<30*60000) return Promise.resolve();
+  var ctl=window.AbortController?new AbortController():null, t=ctl?setTimeout(function(){ctl.abort();},15000):null;
+  return fetch(cfg.relay+"?f="+encodeURIComponent(pf.f),ctl?{signal:ctl.signal}:{}).then(function(r){ clearTimeout(t);
+      if(r.status===404) throw new Error("PAGASA has not published iHeatMAP for "+pf.label+" (it runs mainly in the hot season)");
+      if(!r.ok) throw new Error("relay replied HTTP "+r.status); return r.arrayBuffer(); })
+    .then(function(buf){ return sampleTiff(buf,lat,lon); })
+    .then(function(v){ S.set("pagasaAuto",{hi:Math.round(v*10)/10,f:pf.f,validFor:pf.validFor,label:pf.label,fetched:Date.now(),lat:lat,lon:lon}); setSrc("pagasa","ok","iHeatMAP "+pf.label+" forecast: "+Math.round(v)+" °C at your location"); })
+    .catch(function(e){ clearTimeout(t); setSrc("pagasa",/not published|outside|no heat index/.test(e.message)?"none":"fail",/not published|outside|no heat index|relay replied/.test(e.message)?e.message:why(e)); });
+}
+function openPagasa(){ var p=S.get("pagasa",null); $("#pgHI").value=p&&Date.now()-p.at<=90*60000?p.hi:""; $("#pgPrev").textContent=(p?("Last entry: "+p.hi+" °C at "+fmtTime(p.at)+(Date.now()-p.at>90*60000?" (expired)":"")):"No PAGASA value entered yet.")+" · Automatic (relay): "+((SRCSTAT.pagasa&&SRCSTAT.pagasa.msg)||"not set"); openSheet("#sheetPagasa"); setTimeout(function(){$("#pgHI").focus();},260); }
 function openReading(){ openSheet("#sheetManual"); $("#mRoom").value=cfg.room||""; setTimeout(function(){$("#mT").focus();},260); }
 
 /* ========== Current reading by source ========== */
@@ -774,7 +886,7 @@ function render(){
     $("#chips").innerHTML=L.m.map(function(x){return "<span>"+esc(x)+"</span>";}).join("");
     var n=near(c.exact); $("#warn").hidden=!n; if(n) $("#warn").textContent="Close to the "+n+" line: double-check with a thermometer";
     $("#basis").innerHTML=c.basis;
-    $("#sT").innerHTML=c.t.toFixed(1)+"<small>°C</small>"; $("#sRH").innerHTML=Math.round(c.rh)+"<small>%</small>"; $("#sCat").textContent=cat(c.hi);
+    $("#sT").innerHTML=c.t!=null?c.t.toFixed(1)+"<small>°C</small>":"--"; $("#sRH").innerHTML=c.rh!=null?Math.round(c.rh)+"<small>%</small>":"--"; $("#sCat").textContent=cat(c.hi);
     $("#upd").textContent=(c.src==="tri"?"Triangulated":"Outdoor only")+" · weather updated "+ago(Date.now()-c.at);
     document.querySelector('meta[name="theme-color"]').content=LCOL[l];
     if(lastLevel&&l!==lastLevel&&ORD.indexOf(l)>ORD.indexOf(lastLevel)) alertUp(l,c.hi);
@@ -855,6 +967,10 @@ $("#mUse").onclick=function(){var v=mCalc();if(!v)return;var room=$("#mRoom").va
   addReading({t:v.tc,rh:v.rh,room:room,src:"manual"}); source="tri";
   $("#mT").value="";$("#mRH").value="";mCalc(); closeSheets(); render(); toast("Saved. Decision re-triangulated with this reading.");};
 
+$("#pgUse").onclick=function(){ var v=parseFloat($("#pgHI").value); if(isNaN(v)||v<20||v>60){toast("Enter a heat index between 20 and 60 °C");return;}
+  S.set("pagasa",{hi:Math.round(v),at:Date.now(),src:"PAGASA iHeatMAP"}); closeSheets(); render(); toast("PAGASA forecast added to the triangulation"); };
+$("#pgClear").onclick=function(){ S.set("pagasa",null); closeSheets(); render(); toast("PAGASA value cleared"); };
+
 /* ========== Sheets ========== */
 var lastFocus=null;
 function openSheet(id){closeSheets(true);lastFocus=document.activeElement;$("#scrim").classList.add("show");$(id).classList.add("show");}
@@ -869,7 +985,7 @@ $$("#src button").forEach(function(b){b.onclick=function(){
 };});
 $("#saveBtn").onclick=function(){var c=current();if(!c){toast("No reading yet");return;}
   var d=new Date(), lv=levelOf(c.hi);
-  if(c.src==="tri"){ var T=c.tri; readings.push({id:d.getTime(),ts:d.getTime(),date:dkey(d),time:fmtTime(d),slot:slotNow(),room:"Triangulated ("+["class","station","models"].filter(function(k){return T.rows[k]&&!T.rows[k].derived;}).map(function(k){return (k==="class"?"class ":k==="station"?"stn ":"model ")+T.rows[k].hi;}).join(", ")+")",src:"tri",rawT:c.t,rawRH:c.rh,T:Math.round(c.t),R:Math.round(c.rh),hi:c.hi,level:lv});
+  if(c.src==="tri"){ var T=c.tri; readings.push({id:d.getTime(),ts:d.getTime(),date:dkey(d),time:fmtTime(d),slot:slotNow(),room:"Triangulated ("+["class","ref","models"].filter(function(k){return T.rows[k]&&!T.rows[k].derived;}).map(function(k){var r=T.rows[k];return (k==="class"?"class ":r.k==="station"?"stn ":r.k==="pagasa"?"PAGASA ":r.k==="ecmwf"?"ECMWF ":"model ")+r.hi;}).join(", ")+")",src:"tri",rawT:c.t,rawRH:c.rh,T:Math.round(c.t),R:Math.round(c.rh),hi:c.hi,level:lv});
     if(readings.length>2000) readings=readings.slice(-2000); S.set("readings",readings); render(); }
   else addReading({t:c.t,rh:c.rh,room:"Outdoor",src:c.src});
   toast("Saved: "+LV[lv].name+" ("+c.hi+" °C)");};
@@ -879,8 +995,11 @@ $("#refresh").onclick=function(){ if(cfg.useGps&&(!pos||pos.kind==="ip")) startG
 $("#locPill").onclick=function(){fillSettings();openSheet("#sheetSettings");};
 
 /* ========== Settings ========== */
-function fillSettings(){$("#schName").value=cfg.school;$("#schId").value=cfg.schoolId;$("#useGps").checked=cfg.useGps;$("#manualLoc").hidden=cfg.useGps;$("#wake").checked=cfg.wake;$("#alerts").checked=cfg.alerts;$("#saver").checked=cfg.saver;$("#wake").disabled=!("wakeLock" in navigator);}
+function fillSettings(){$("#schName").value=cfg.school;$("#schId").value=cfg.schoolId;$("#useGps").checked=cfg.useGps;$("#manualLoc").hidden=cfg.useGps;$("#wake").checked=cfg.wake;$("#alerts").checked=cfg.alerts;$("#saver").checked=cfg.saver;$("#wake").disabled=!("wakeLock" in navigator);$("#relayUrl").value=cfg.relay||"";}
 $("#openSettings").onclick=function(){fillSettings();openSheet("#sheetSettings");};
+$("#relayTest").onclick=function(){ var ru=cleanRelay($("#relayUrl").value), m=$("#relayMsg");
+  if(!ru){ m.textContent="Paste your relay link first (it ends in .workers.dev)."; return; } if(ru===false){ m.textContent="The link must start with https://"; return; }
+  m.textContent="Testing…"; getJSON(ru+"?ping=1",9000).then(function(j){ m.innerHTML=j&&j.ok?(j.metar?"✅ Relay works: live airport reports + PAGASA iHeatMAP. Tap Done to save.":"⚠️ This is the older relay (PAGASA only). Paste the new worker.js in Cloudflare to add live airport reports. Tap Done to save."):"❌ That link answered, but it isn't the ALAB relay."; },function(e){ m.textContent="❌ "+why(e)+". Check the link, and that the Worker is deployed."; }); };
 $("#useGps").onchange=function(e){$("#manualLoc").hidden=e.target.checked;};
 function search(){var q=$("#place").value.trim();if(q.length<2)return;$("#placeRes").innerHTML="<button disabled>Searching…</button>";
   getJSON("https://geocoding-api.open-meteo.com/v1/search?count=6&language=en&countryCode=PH&name="+encodeURIComponent(q),10000).then(function(j){var res=j.results||[];
@@ -890,6 +1009,7 @@ function search(){var q=$("#place").value.trim();if(q.length<2)return;$("#placeR
 $("#placeGo").onclick=search; $("#place").addEventListener("keydown",function(e){if(e.key==="Enter")search();});
 $("#saveSettings").onclick=function(){
   cfg.school=$("#schName").value.trim();cfg.schoolId=$("#schId").value.trim();cfg.wake=$("#wake").checked;cfg.alerts=$("#alerts").checked;
+  var ru=cleanRelay($("#relayUrl").value); if(ru===false){toast("The relay link must start with https://");return;} if(ru!==cfg.relay){cfg.relay=ru;S.set("pagasaAuto",null);}
   var saverChanged=cfg.saver!==$("#saver").checked; cfg.saver=$("#saver").checked;
   var gps=$("#useGps").checked; if(!gps&&cfg.lat==null){toast("Search and pick your city first");return;}
   var changed=gps!==cfg.useGps; cfg.useGps=gps; S.set("cfg",cfg);
