@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>ALAB Admin · Division live heat map</title>
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="stylesheet" href="lib/leaflet/leaflet.css">
@@ -208,7 +208,7 @@ var map=null, layer=null, users=[], marks={}, fitted=false, autoT=null;
 function initMap(){
   if(map) return;
   map=L.map("map",{preferCanvas:true}).setView([9.05,125.55],9);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,referrerPolicy:"strict-origin-when-cross-origin",attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
   layer=L.layerGroup().addTo(map);
   var lg=L.control({position:"bottomleft"});
   lg.onAdd=function(){var d=L.DomUtil.create("div");d.style.cssText="background:#fff;padding:6px 9px;border-radius:9px;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.2)";
