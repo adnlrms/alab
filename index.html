@@ -381,7 +381,7 @@ function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 var S={get:function(k,d){try{var v=localStorage.getItem("alab."+k);return v==null?d:JSON.parse(v)}catch(e){return d}},set:function(k,v){try{localStorage.setItem("alab."+k,JSON.stringify(v))}catch(e){}}};
 var conn=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
 var autoSaver=!!(conn&&(conn.saveData||/(^|-)2g/.test(conn.effectiveType||"")));
-var cfg=Object.assign({relay:"",started:false,school:"",schoolId:"",useGps:true,lat:null,lon:null,place:"",wake:false,alerts:true,room:"",saver:autoSaver},S.get("cfg",{}));
+var cfg=Object.assign({relay:"https://alab-relay.agnor-lrmc.workers.dev",started:false,school:"",schoolId:"",useGps:true,lat:null,lon:null,place:"",wake:false,alerts:true,room:"",saver:autoSaver},S.get("cfg",{}));
 var readings=S.get("readings",[]);
 var model=S.get("model",null), obsList=[], pos=null, placeName=S.get("placeName",""), geoAt=null;
 var calibs=S.get("calibs",[]);   // [{date,dT,dTd,room,at}]
