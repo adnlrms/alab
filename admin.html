@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>ALAB Admin · Division live heat map</title>
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="stylesheet" href="lib/leaflet/leaflet.css">
+<style>
+:root{--navy:#1c2754;--red:#c4120f;--orange:#fe7902;--ink:#1c2754;--ink2:#4a5376;--muted:#767d98;--line:#e7e0d6;--paper:#fbf7f2;--card:#fff;
+  --brand-grad:linear-gradient(135deg,#a50d0d 0%,#e8340c 45%,#fe7902 80%,#fc9401 100%);
+  --hayo:#2e9d57;--hinay:#f2b200;--hinga:#fe7902;--hinto:#c4120f;--stale:#9aa0a6;
+  --hayo-bg:#e4f5ea;--hinay-bg:#fff4d2;--hinga-bg:#ffe6d1;--hinto-bg:#fde0de}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+input,select{padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;min-width:0}
+.btn{border:0;border-radius:10px;padding:9px 14px;font-weight:800;background:var(--brand-grad);color:#fff}
+.btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.55;cursor:default}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:1000}
+header img{width:36px;height:36px;border-radius:9px}
+header .t b{display:block;font-size:17px;font-weight:900;background:var(--brand-grad);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1.1}
+header .t span{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);font-weight:700}
+header nav{margin-left:auto;display:flex;gap:6px;align-items:center}
+header nav button.tab{background:none;border:0;padding:8px 12px;border-radius:9px;font-weight:800;color:var(--ink2)}
+header nav button.tab.on{background:var(--navy);color:#fff}
+#who{font-size:12px;color:var(--muted);margin-left:8px}
+main{padding:14px 16px;max-width:1500px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+#login{max-width:420px;margin:8vh auto}
+#login h2{margin:0 0 6px}#login label{display:block;font-weight:700;margin:12px 0 4px;font-size:13px}#login input{width:100%}
+.err{color:var(--red);font-weight:700;min-height:1.2em;margin:8px 0 0}
+.hide{display:none!important}
+/* live */
+#live{display:grid;grid-template-columns:1fr 360px;gap:14px;height:calc(100vh - 90px)}
+#map{border-radius:14px;border:1px solid var(--line);min-height:420px;height:100%}
+#side{display:flex;flex-direction:column;gap:10px;min-height:0}
+.counts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.counts div{border-radius:10px;padding:8px 4px;text-align:center;font-size:11px;font-weight:700}
+.counts b{display:block;font-size:20px;font-weight:900}
+.c-hayo{background:var(--hayo-bg);color:var(--hayo)}.c-hinay{background:var(--hinay-bg);color:#8a6300}.c-hinga{background:var(--hinga-bg);color:#b35100}.c-hinto{background:var(--hinto-bg);color:var(--hinto)}.c-stale{background:#eef0f3;color:#5f6670}
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:6px}.filters .full{grid-column:1/3}
+.chk{display:flex;gap:6px;align-items:center;font-size:13px}
+#list{overflow:auto;flex:1;min-height:120px;padding:0}
+.u{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.u:hover{background:#faf6f0}.u small{color:var(--muted)}
+.u .hi{font-weight:900;font-size:18px;text-align:right}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11.5px;font-weight:800}
+.pill.hayo{background:var(--hayo-bg);color:var(--hayo)}.pill.hinay{background:var(--hinay-bg);color:#8a6300}.pill.hinga{background:var(--hinga-bg);color:#b35100}.pill.hinto{background:var(--hinto-bg);color:var(--hinto)}.pill.stale{background:#eef0f3;color:#5f6670}
+.meta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.leaflet-popup-content{font-size:13px;line-height:1.4;margin:10px 12px}
+.leaflet-popup-content h4{margin:0 0 4px;font-size:14px}
+/* reports */
+.ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+.ctrl label{display:flex;flex-direction:column;font-size:12px;font-weight:700;color:var(--ink2);gap:3px}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.presets button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:5px 11px;font-size:12.5px;font-weight:700}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:14px 0}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.kpi span{font-size:12px;color:var(--ink2);font-weight:700}.kpi b{display:block;font-size:24px;font-weight:900}.kpi small{color:var(--muted)}
+h3{margin:18px 0 8px;font-size:15px}
+table{border-collapse:collapse;width:100%;background:#fff;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#f6f1ea;font-size:12px;position:sticky;top:0}
+td.n,th.n{text-align:right}
+.tblwrap{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+#chart svg,#cmpChart svg{width:100%;height:auto;background:#fff;border:1px solid var(--line);border-radius:12px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin-top:6px}.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.dl{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.note{font-size:12.5px;color:var(--ink2)}
+.printhead{display:none}
+@media (max-width:900px){#live{grid-template-columns:1fr;height:auto}#map{height:60vh}#list{max-height:50vh}}
+@media print{header,#login,#liveTab,.ctrl,.presets,.dl,.noprint{display:none!important}main{padding:0}.printhead{display:block}.tblwrap{max-height:none;overflow:visible;border:0}th{position:static}body{background:#fff}.kpi,.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header>
+  <img src="icons/mark-96.webp" alt="">
+  <div class="t"><b>ALAB Admin</b><span>Division live heat map &amp; records</span></div>
+  <nav id="nav" class="hide">
+    <button class="tab on" data-tab="liveTab">Live map</button>
+    <button class="tab" data-tab="repTab">Records &amp; reports</button>
+    <span id="who"></span>
+    <button class="btn sec" id="logout" style="padding:6px 10px">Lock</button>
+  </nav>
+</header>
+<main>
+  <div id="login" class="card">
+    <h2>Admin sign in</h2>
+    <p class="note">For authorised Schools Division Office personnel. The data shown here includes teachers' locations and is covered by the Data Privacy Act of 2012.</p>
+    <label for="lgRelay">ALAB relay link</label><input id="lgRelay" placeholder="https://alab-pagasa.yourname.workers.dev" inputmode="url" autocomplete="off">
+    <label for="lgPass">Admin passcode</label><input id="lgPass" type="password" autocomplete="current-password">
+    <p class="err" id="lgErr"></p>
+    <button class="btn" id="lgGo" style="width:100%;margin-top:6px">Open admin view</button>
+    <p class="note" style="margin-top:10px">The passcode is kept only for this browser tab and is cleared when you close it or press Lock.</p>
+  </div>
+
+  <section id="liveTab" class="hide">
+    <div id="live">
+      <div id="map" role="region" aria-label="Live map of ALAB users"></div>
+      <div id="side">
+        <div class="counts" id="counts"></div>
+        <div class="card filters">
+          <select id="fDistrict" aria-label="District"><option value="">All districts</option></select>
+          <select id="fLevel" aria-label="Level"><option value="">All levels</option><option value="hinto">Hinto only</option><option value="hinga+">Hinga and above</option><option value="hinay+">Hinay and above</option></select>
+          <input id="fSearch" class="full" placeholder="Search school, name or ID" aria-label="Search">
+          <label class="chk full"><input type="checkbox" id="fStale"> Include users inactive for over 10 min (last 24 h)</label>
+        </div>
+        <div class="meta"><span id="liveMeta">Loading…</span><button class="btn sec" id="liveRefresh" style="padding:4px 10px">Refresh</button></div>
+        <div class="card" id="list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="repTab" class="hide">
+    <div class="printhead"><h2 style="margin:0">ALAB Heat Index Report</h2><p id="printSub" class="note"></p></div>
+    <div class="card">
+      <div class="ctrl">
+        <label>From<input type="date" id="rFrom"></label>
+        <label>To<input type="date" id="rTo"></label>
+        <label>Readings<select id="rKind"><option value="">Thermometer + triangulated</option><option value="thermometer">Thermometer only</option><option value="triangulated">Triangulated only</option></select></label>
+        <label>District<select id="rDistrict"><option value="">All districts</option></select></label>
+        <button class="btn" id="rLoad">Load records</button>
+        <button class="btn sec" id="rCmp" disabled>Compare with past 2 years</button>
+      </div>
+      <div class="presets" id="presets"></div>
+      <p class="note" id="rInfo" style="margin:10px 0 0">Choose a date range (up to 366 days) and press Load records. Readings are kept for 3 years.</p>
+    </div>
+    <div id="rOut" class="hide">
+      <div class="kpis" id="kpis"></div>
+      <h3>Daily highest heat index (Division)</h3>
+      <div id="chart"></div>
+      <div id="cmpBox" class="hide">
+        <h3>Hot season comparison, same dates each year</h3>
+        <div id="cmpChart"></div>
+        <div class="tblwrap" style="margin-top:8px"><table id="cmpTbl"></table></div>
+      </div>
+      <h3>Daily by school</h3>
+      <div class="tblwrap"><table id="dailyTbl"></table></div>
+      <h3>Schools with the most Hinto days</h3>
+      <div class="tblwrap"><table id="schoolTbl"></table></div>
+      <div class="dl">
+        <button class="btn" id="dlXlsx">Download Excel report</button>
+        <button class="btn sec" id="dlCsv">Download all readings (CSV)</button>
+        <button class="btn sec" id="dlPrint">Print / save as PDF</button>
+      </div>
+      <p class="note">Thermometer = classroom reading typed in by a teacher. Triangulated = the app's live decision (thermometer, weather station, PAGASA and forecast models), recorded at most every 30 minutes per device and whenever the 4H level changes.</p>
+    </div>
+  </section>
+</main>
+
+<script src="lib/leaflet/leaflet.js"></script>
+<script src="lib/xlsx.mini.min.js"></script>
+<script>
+"use strict";
+var LV={hayo:{n:"Hayo",c:"#2e9d57"},hinay:{n:"Hinay",c:"#f2b200"},hinga:{n:"Hinga",c:"#fe7902"},hinto:{n:"Hinto",c:"#c4120f"}};
+var ORD=["hayo","hinay","hinga","hinto"], STALE_MS=10*60e3, TZ="Asia/Manila";
+var $=function(s){return document.querySelector(s);}, $$=function(s){return Array.prototype.slice.call(document.querySelectorAll(s));};
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function lvOf(hi){return hi==null?null:hi>=42?"hinto":hi>=33?"hinga":hi>=27?"hinay":"hayo";}
+function lvName(l){return LV[l]?LV[l].n:"";}
+function tPH(ts,o){return new Date(ts).toLocaleString("en-PH",Object.assign({timeZone:TZ},o||{hour:"numeric",minute:"2-digit"}));}
+function phDay(ts){return new Date(ts+8*3600e3).toISOString().slice(0,10);}
+function ago(ms){var m=Math.round(ms/60000);return m<1?"just now":m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)+" d ago";}
+function addDays(d,n){var x=new Date(d+"T00:00:00Z");x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10);}
+function shiftYear(d,n){var y=+d.slice(0,4)+n,md=d.slice(5);if(md==="02-29")md="02-28";return y+"-"+md;}
+function days(a,b){return Math.round((Date.parse(b)-Date.parse(a))/864e5);}
+
+/* ---------- session ---------- */
+var A={relay:"",pass:""};
+try{var c=JSON.parse(localStorage.getItem("alab.cfg")||"{}");$("#lgRelay").value=localStorage.getItem("alab.adminRelay")||c.relay||"";}catch(e){}
+function api(path){
+  return fetch(A.relay+path,{headers:{Authorization:"Bearer "+A.pass},cache:"no-store"}).then(function(r){
+    return r.json().catch(function(){return {ok:false,error:"Bad reply ("+r.status+")"};}).then(function(j){j.status=r.status;if(r.status===401)lock("Passcode no longer valid. Sign in again.");return j;});
+  });
+}
+function signIn(relay,pass,quiet){
+  A.relay=relay.trim().replace(/\/+$/,""); A.pass=pass;
+  if(!/^https?:\/\//.test(A.relay)){ $("#lgErr").textContent="Enter the relay link (starts with https://)."; return; }
+  $("#lgGo").disabled=true; $("#lgErr").textContent="";
+  api("/api/admin/stats").then(function(s){
+    $("#lgGo").disabled=false;
+    if(!s.ok){ $("#lgErr").textContent=s.status===401?"Wrong passcode.":s.status===503?(s.error||"Live map is not set up on the relay."):(s.error||"Could not connect."); if(quiet) lock(); return; }
+    try{sessionStorage.setItem("alab.admin",JSON.stringify(A));localStorage.setItem("alab.adminRelay",A.relay);}catch(e){}
+    $("#lgPass").value=""; $("#login").classList.add("hide"); $("#nav").classList.remove("hide");
+    $("#who").textContent=A.relay.replace(/^https?:\/\//,"")+" · "+s.totalReadings+" readings since "+(s.firstDay||"—");
+    stats=s; show("liveTab"); initMap(); loadLive(); startAuto(); initReports();
+  },function(){ $("#lgGo").disabled=false; $("#lgErr").textContent="Could not reach the relay. Check the link and your connection."; });
+}
+function lock(msg){
+  try{sessionStorage.removeItem("alab.admin");}catch(e){} A.pass=""; clearInterval(autoT);
+  $("#nav").classList.add("hide"); $$("section").forEach(function(s){s.classList.add("hide");}); $("#login").classList.remove("hide");
+  $("#lgErr").textContent=msg||"";
+}
+$("#lgGo").onclick=function(){signIn($("#lgRelay").value,$("#lgPass").value);};
+$("#lgPass").onkeydown=function(e){if(e.key==="Enter")$("#lgGo").click();};
+$("#logout").onclick=function(){lock("Locked.");};
+$$("nav .tab").forEach(function(b){b.onclick=function(){show(b.dataset.tab);};});
+function show(id){$$("section").forEach(function(s){s.classList.toggle("hide",s.id!==id);});$$("nav .tab").forEach(function(b){b.classList.toggle("on",b.dataset.tab===id);});if(id==="liveTab"&&map)setTimeout(function(){map.invalidateSize();},50);}
+var stats=null;
+
+/* ---------- live map ---------- */
+var map=null, layer=null, users=[], marks={}, fitted=false, autoT=null;
+function initMap(){
+  if(map) return;
+  map=L.map("map",{preferCanvas:true}).setView([9.05,125.55],9);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
+  layer=L.layerGroup().addTo(map);
+  var lg=L.control({position:"bottomleft"});
+  lg.onAdd=function(){var d=L.DomUtil.create("div");d.style.cssText="background:#fff;padding:6px 9px;border-radius:9px;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.2)";
+    d.innerHTML=ORD.map(function(l){return '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+LV[l].c+';margin:0 4px 0 8px"></span>'+LV[l].n;}).join("")+'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9aa0a6;margin:0 4px 0 8px"></span>Inactive';return d;};
+  lg.addTo(map);
+}
+function startAuto(){clearInterval(autoT);autoT=setInterval(function(){if(!document.hidden&&A.pass)loadLive();},60e3);}
+$("#liveRefresh").onclick=function(){loadLive();};
+["#fDistrict","#fLevel","#fStale"].forEach(function(s){$(s).onchange=drawLive;}); $("#fSearch").oninput=drawLive;
+function loadLive(){
+  $("#liveMeta").textContent="Updating…";
+  api("/api/admin/live?minutes=1440").then(function(r){
+    if(!r.ok){$("#liveMeta").textContent=r.error||"Could not load";return;}
+    var skew=r.now?Date.now()-r.now:0; users=(r.users||[]).map(function(u){u.age=Date.now()-skew-u.updated_at;u.stale=u.age>STALE_MS;return u;});
+    fillDistricts("#fDistrict",users.map(function(u){return u.district;})); drawLive();
+  },function(){$("#liveMeta").textContent="Offline. Retrying in 1 min";});
+}
+function fillDistricts(sel,list){
+  var s=$(sel),cur=s.value,have={};$$(sel+" option").forEach(function(o){have[o.value]=1;});
+  list.filter(Boolean).sort().forEach(function(d){if(!have[d]){have[d]=1;var o=document.createElement("option");o.value=o.textContent=d;s.appendChild(o);}});s.value=cur;
+}
+function passLevel(l,f){if(!f)return true;if(f==="hinto")return l==="hinto";var min=f==="hinga+"?2:1;return ORD.indexOf(l)>=min;}
+function drawLive(){
+  var fd=$("#fDistrict").value,fl=$("#fLevel").value,fs=$("#fSearch").value.trim().toLowerCase(),fst=$("#fStale").checked;
+  var act=users.filter(function(u){return !u.stale;}), cnt={hayo:0,hinay:0,hinga:0,hinto:0};
+  act.forEach(function(u){if(cnt[u.level]!=null)cnt[u.level]++;});
+  $("#counts").innerHTML=ORD.map(function(l){return '<div class="c-'+l+'"><b>'+cnt[l]+'</b>'+LV[l].n+'</div>';}).join("")+'<div class="c-stale"><b>'+(users.length-act.length)+'</b>Inactive</div>';
+  var vis=users.filter(function(u){
+    if(u.stale&&!fst) return false; if(fd&&u.district!==fd) return false; if(!passLevel(u.level,fl)) return false;
+    if(fs&&[u.school,u.school_id,u.name,u.district,u.role].join(" ").toLowerCase().indexOf(fs)<0) return false; return true;
+  }).sort(function(a,b){return (a.stale-b.stale)||((b.hi||0)-(a.hi||0));});
+  layer.clearLayers(); marks={}; var pts=[];
+  vis.forEach(function(u){
+    var col=u.stale?"#9aa0a6":(LV[u.level]||{c:"#9aa0a6"}).c, ll=[u.lat,u.lon];
+    if(u.acc&&u.acc>60&&u.acc<5000) L.circle(ll,{radius:u.acc,color:col,weight:1,opacity:.35,fillOpacity:.06,interactive:false}).addTo(layer);
+    var m=L.circleMarker(ll,{radius:u.stale?7:10,color:"#fff",weight:2,fillColor:col,fillOpacity:u.stale?.7:.95}).addTo(layer).bindPopup(popup(u));
+    marks[u.device_id]=m; pts.push(ll);
+  });
+  if(!fitted&&pts.length){map.fitBounds(pts,{padding:[30,30],maxZoom:13});fitted=true;}
+  $("#list").innerHTML=vis.length?vis.map(function(u){
+    var l=u.stale?"stale":u.level;
+    return '<div class="u" data-id="'+esc(u.device_id)+'"><div><b>'+esc(u.school||"(school)")+'</b><br><small>'+esc([u.name||"Anonymous",u.role,u.district].filter(Boolean).join(" · "))+'</small><br><small>'+(u.stale?"Last seen ":"Updated ")+ago(u.age)+(u.verified?" · ✓ verified":"")+'</small></div>'+
+      '<div><div class="hi">'+(u.hi!=null?u.hi+"°":"--")+'</div><span class="pill '+l+'">'+(u.stale?"Inactive":lvName(u.level))+'</span></div></div>';
+  }).join(""):'<p style="padding:12px" class="note">No one is sharing right now'+(users.length?" with these filters":"")+'. Users appear here while ALAB is open on their device with sharing on.</p>';
+  $$("#list .u").forEach(function(d){d.onclick=function(){var m=marks[d.dataset.id];if(m){map.setView(m.getLatLng(),Math.max(map.getZoom(),14));m.openPopup();}};});
+  $("#liveMeta").textContent=act.length+" active now · "+users.length+" in last 24 h · updated "+tPH(Date.now());
+}
+function popup(u){
+  return "<h4>"+esc(u.school||"(school)")+(u.school_id?" <small>("+esc(u.school_id)+")</small>":"")+"</h4>"+
+    esc([u.name||"Anonymous",u.role].filter(Boolean).join(" · "))+(u.district?"<br>District: "+esc(u.district):"")+
+    "<br><b style='font-size:16px'>HI "+(u.hi!=null?u.hi+" °C":"--")+"</b> <span class='pill "+(u.stale?"stale":u.level)+"'>"+lvName(u.level)+"</span>"+
+    "<br>"+(u.t!=null?(+u.t).toFixed(1)+" °C, "+Math.round(u.rh)+"% RH":"")+(u.nsrc!=null?" · "+u.nsrc+" source"+(u.nsrc==1?"":"s"):"")+(u.verified?" · ✓ verified":"")+
+    (u.checks?"<br><small>"+esc(u.checks)+"</small>":"")+
+    "<br><small>"+tPH(u.updated_at,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+" ("+ago(u.age)+")"+(u.acc?" · location ±"+Math.round(u.acc)+" m":"")+(u.loc_kind&&u.loc_kind!=="gps"?" · "+esc(u.loc_kind)+" location":"")+"</small>";
+}
+
+/* ---------- reports ---------- */
+var R={rows:[],from:"",to:"",kind:"",cmp:null,daily:[],schools:[]};
+function initReports(){
+  if($("#presets").childElementCount) return;
+  var t=phDay(Date.now()),y=+t.slice(0,4);
+  var P=[["Today",t,t],["Last 7 days",addDays(t,-6),t],["This month",t.slice(0,8)+"01",t],["Last 30 days",addDays(t,-29),t],
+    ["Hot season "+y+" (Mar–May)",y+"-03-01",y+"-05-31"],["Hot season "+(y-1),(y-1)+"-03-01",(y-1)+"-05-31"],["School year "+(t.slice(5)>="06-01"?y+"–"+(y+1):(y-1)+"–"+y),(t.slice(5)>="06-01"?y:y-1)+"-06-01",t],["Last 12 months",addDays(t,-365),t]];
+  $("#presets").innerHTML=P.map(function(p,i){return '<button data-i="'+i+'">'+p[0]+'</button>';}).join("");
+  $$("#presets button").forEach(function(b){b.onclick=function(){var p=P[+b.dataset.i];$("#rFrom").value=p[1];$("#rTo").value=p[2]>t?t:p[2];loadRep();};});
+  $("#rFrom").value=addDays(t,-6); $("#rTo").value=t;
+}
+$("#rLoad").onclick=function(){loadRep();};
+$("#rDistrict").onchange=function(){if(R.rows.length)build();};
+function loadRep(){
+  var f=$("#rFrom").value,t=$("#rTo").value,k=$("#rKind").value;
+  if(!f||!t||f>t){$("#rInfo").textContent="Pick a valid From and To date.";return;}
+  if(days(f,t)>366){$("#rInfo").textContent="Please choose up to 366 days per report (the server limit). For longer periods, use Compare with past 2 years.";return;}
+  $("#rLoad").disabled=true; $("#rInfo").textContent="Loading records…";
+  fetchRange(f,t,k).then(function(r){
+    $("#rLoad").disabled=false;
+    if(!r.ok){$("#rInfo").textContent=r.error||"Could not load";return;}
+    R.rows=r.readings; R.from=f; R.to=t; R.kind=k; R.cmp=null; $("#cmpBox").classList.add("hide");
+    fillDistricts("#rDistrict",R.rows.map(function(x){return x.district;}));
+    $("#rInfo").textContent=r.count+" readings from "+f+" to "+t+(r.count>=100000?" (limit reached: choose a shorter range)":"")+".";
+    $("#rCmp").disabled=false; build();
+  },function(){$("#rLoad").disabled=false;$("#rInfo").textContent="Could not reach the relay.";});
+}
+function fetchRange(f,t,k){return api("/api/admin/readings?from="+f+"&to="+t+(k?"&kind="+k:""));}
+function rowsFiltered(rows){var d=$("#rDistrict").value;return d?rows.filter(function(x){return x.district===d;}):rows;}
+function schoolKey(x){return (x.school_id||"")+"|"+(x.school||"");}
+function aggregate(rows){
+  var by={},div={};
+  rows.forEach(function(x){
+    if(x.hi==null) return;
+    var k=x.day+"#"+schoolKey(x),g=by[k];
+    if(!g) g=by[k]={day:x.day,school:x.school,school_id:x.school_id,district:x.district,max:-1,at:0,room:"",nT:0,nA:0,users:{},hinto:0};
+    if(x.kind==="thermometer")g.nT++;else g.nA++;
+    g.users[x.device_id]=1; if(x.level==="hinto")g.hinto++;
+    if(x.hi>g.max){g.max=x.hi;g.at=x.ts;g.room=x.room||"";g.maxKind=x.kind;}
+    var d=div[x.day]; if(!d||x.hi>d.max) div[x.day]={day:x.day,max:x.hi,school:x.school,at:x.ts};
+  });
+  var daily=Object.keys(by).map(function(k){var g=by[k];g.level=lvOf(g.max);g.nU=Object.keys(g.users).length;return g;}).sort(function(a,b){return a.day<b.day?-1:a.day>b.day?1:b.max-a.max;});
+  return {daily:daily,div:div};
+}
+function build(){
+  var rows=rowsFiltered(R.rows), ag=aggregate(rows); R.daily=ag.daily; R.div=ag.div;
+  $("#rOut").classList.remove("hide");
+  var schools={},usersN={},top=null,lvDays={hayo:0,hinay:0,hinga:0,hinto:0};
+  rows.forEach(function(x){schools[schoolKey(x)]=1;usersN[x.device_id]=1;if(x.hi!=null&&(!top||x.hi>top.hi))top=x;});
+  Object.keys(ag.div).forEach(function(d){lvDays[lvOf(ag.div[d].max)]++;});
+  var nT=rows.filter(function(x){return x.kind==="thermometer";}).length;
+  var sch={}; ag.daily.forEach(function(g){var k=schoolKey(g),s=sch[k];if(!s)s=sch[k]={school:g.school,school_id:g.school_id,district:g.district,days:0,hinto:0,hinga:0,max:-1,maxDay:""};
+    s.days++; if(g.level==="hinto")s.hinto++; if(g.level==="hinga")s.hinga++; if(g.max>s.max){s.max=g.max;s.maxDay=g.day;}});
+  R.schools=Object.keys(sch).map(function(k){return sch[k];}).sort(function(a,b){return b.hinto-a.hinto||b.hinga-a.hinga||b.max-a.max;});
+  R.kpi=[["Readings",rows.length,nT+" thermometer · "+(rows.length-nT)+" triangulated"],["Schools",Object.keys(schools).length,Object.keys(usersN).length+" devices"],
+    ["Highest heat index",top?top.hi+" °C":"--",top?(top.school||"")+" · "+tPH(top.ts,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):""],
+    ["Days at Hinto (any school)",lvDays.hinto,"of "+Object.keys(ag.div).length+" days with data"],["Days peaking at Hinga",lvDays.hinga,"Hinay "+lvDays.hinay+" · Hayo "+lvDays.hayo]];
+  $("#kpis").innerHTML=R.kpi.map(function(k){return '<div class="kpi"><span>'+esc(k[0])+'</span><b>'+esc(k[1])+'</b><small>'+esc(k[2])+'</small></div>';}).join("");
+  var dd=[];for(var d=R.from;d<=R.to;d=addDays(d,1))dd.push(d);
+  $("#chart").innerHTML=chart(dd.map(function(d){return d.slice(5);}),[{label:"Division daily max",color:"#c4120f",vals:dd.map(function(d){return ag.div[d]?ag.div[d].max:null;})}]);
+  $("#dailyTbl").innerHTML="<thead><tr><th>Date</th><th>School</th><th>District</th><th class='n'>Max HI</th><th>4H</th><th>Time of max</th><th>Room</th><th class='n'>Thermo.</th><th class='n'>Triang.</th><th class='n'>Devices</th></tr></thead><tbody>"+
+    ag.daily.slice().reverse().slice(0,3000).map(function(g){return "<tr><td>"+g.day+"</td><td>"+esc(g.school)+(g.school_id?" <small>("+esc(g.school_id)+")</small>":"")+"</td><td>"+esc(g.district||"")+"</td><td class='n'><b>"+g.max+"</b></td><td><span class='pill "+g.level+"'>"+lvName(g.level)+"</span></td><td>"+tPH(g.at)+"</td><td>"+esc(g.room)+"</td><td class='n'>"+g.nT+"</td><td class='n'>"+g.nA+"</td><td class='n'>"+g.nU+"</td></tr>";}).join("")+"</tbody>";
+  $("#schoolTbl").innerHTML="<thead><tr><th>School</th><th>District</th><th class='n'>Days with data</th><th class='n'>Hinto days</th><th class='n'>Hinga days</th><th class='n'>Highest HI</th><th>On</th></tr></thead><tbody>"+
+    R.schools.slice(0,500).map(function(s){return "<tr><td>"+esc(s.school)+(s.school_id?" <small>("+esc(s.school_id)+")</small>":"")+"</td><td>"+esc(s.district||"")+"</td><td class='n'>"+s.days+"</td><td class='n'><b>"+s.hinto+"</b></td><td class='n'>"+s.hinga+"</td><td class='n'>"+s.max+"</td><td>"+s.maxDay+"</td></tr>";}).join("")+"</tbody>";
+  $("#printSub").textContent=R.from+" to "+R.to+($("#rDistrict").value?" · "+$("#rDistrict").value:" · All districts")+(R.kind?" · "+R.kind+" readings":"")+" · printed "+tPH(Date.now(),{dateStyle:"medium",timeStyle:"short"});
+  if(R.cmp) drawCmp();
+}
+function chart(xl,series){
+  var W=900,H=280,l=40,r=12,t=12,b=34,n=Math.max(1,xl.length),y0=20,y1=55;
+  series.forEach(function(s){s.vals.forEach(function(v){if(v!=null&&v>y1)y1=Math.ceil(v/5)*5;});});
+  var X=function(i){return l+(n===1?(W-l-r)/2:i*(W-l-r)/(n-1));},Y=function(v){return t+(H-t-b)*(1-(v-y0)/(y1-y0));};
+  var o='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Daily maximum heat index chart">';
+  [[y0,27,"#e4f5ea"],[27,33,"#fff4d2"],[33,42,"#ffe6d1"],[42,y1,"#fde0de"]].forEach(function(z){o+='<rect x="'+l+'" y="'+Y(z[1])+'" width="'+(W-l-r)+'" height="'+(Y(z[0])-Y(z[1]))+'" fill="'+z[2]+'"/>';});
+  [[27,"Hinay"],[33,"Hinga"],[42,"Hinto"]].forEach(function(z){o+='<line x1="'+l+'" x2="'+(W-r)+'" y1="'+Y(z[0])+'" y2="'+Y(z[0])+'" stroke="#fff" stroke-width="1.5"/><text x="'+(W-r-4)+'" y="'+(Y(z[0])-4)+'" font-size="11" text-anchor="end" fill="#767d98">'+z[1]+' '+z[0]+'°</text>';});
+  for(var v=y0;v<=y1;v+=5)o+='<text x="'+(l-6)+'" y="'+(Y(v)+4)+'" font-size="11" text-anchor="end" fill="#767d98">'+v+'</text>';
+  var step=Math.ceil(n/12);xl.forEach(function(s,i){if(i%step===0)o+='<text x="'+X(i)+'" y="'+(H-12)+'" font-size="11" text-anchor="middle" fill="#767d98">'+esc(s)+'</text>';});
+  series.forEach(function(s){
+    var d="",pen=false;s.vals.forEach(function(v,i){if(v==null){pen=false;return;}d+=(pen?"L":"M")+X(i).toFixed(1)+" "+Y(v).toFixed(1);pen=true;});
+    o+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2.2" stroke-linejoin="round"/>';
+    if(n<=62)s.vals.forEach(function(v,i){if(v!=null)o+='<circle cx="'+X(i)+'" cy="'+Y(v)+'" r="2.6" fill="'+s.color+'"><title>'+esc(s.label+" "+xl[i]+": "+v+" °C")+'</title></circle>';});
+  });
+  o+='</svg>';
+  if(series.length>1)o+='<div class="legend">'+series.map(function(s){return '<span><i style="background:'+s.color+'"></i>'+esc(s.label)+'</span>';}).join("")+'</div>';
+  return o;
+}
+$("#rCmp").onclick=function(){
+  var b=$("#rCmp"); b.disabled=true; $("#rInfo").textContent="Loading the same dates from the past 2 years…";
+  var yrs=[1,2].map(function(n){return {n:n,from:shiftYear(R.from,-n),to:shiftYear(R.to,-n)};});
+  Promise.all(yrs.map(function(y){return fetchRange(y.from,y.to,R.kind);})).then(function(rs){
+    b.disabled=false; R.cmp=[{label:R.from.slice(0,4)+(R.to.slice(0,4)!==R.from.slice(0,4)?"–"+R.to.slice(2,4):""),from:R.from,to:R.to,rows:R.rows}];
+    rs.forEach(function(r,i){R.cmp.push({label:yrs[i].from.slice(0,4)+(yrs[i].to.slice(0,4)!==yrs[i].from.slice(0,4)?"–"+yrs[i].to.slice(2,4):""),from:yrs[i].from,to:yrs[i].to,rows:r.ok?r.readings:[],err:r.ok?"":r.error});});
+    $("#rInfo").textContent="Comparison loaded."; drawCmp();
+  },function(){b.disabled=false;$("#rInfo").textContent="Could not load the past years.";});
+};
+function drawCmp(){
+  var cols=["#c4120f","#0162b7","#2e9d57"], n=days(R.from,R.to)+1, xl=[];
+  for(var i=0;i<n;i++)xl.push(addDays(R.from,i).slice(5));
+  R.cmpSum=R.cmp.map(function(c){
+    var ag=aggregate(rowsFiltered(c.rows)), vals=[], dm=[];
+    for(var i=0;i<n;i++){var d=addDays(c.from,i),v=ag.div[d]?ag.div[d].max:null;vals.push(v);if(v!=null)dm.push(v);}
+    var cnt={hayo:0,hinay:0,hinga:0,hinto:0}; dm.forEach(function(v){cnt[lvOf(v)]++;});
+    return {label:c.label,from:c.from,to:c.to,vals:vals,days:dm.length,avg:dm.length?Math.round(dm.reduce(function(a,b){return a+b;},0)/dm.length*10)/10:null,peak:dm.length?Math.max.apply(null,dm):null,hinto:cnt.hinto,hinga:cnt.hinga,schools:Object.keys(ag.daily.reduce(function(o,g){o[schoolKey(g)]=1;return o;},{})).length,err:c.err};
+  });
+  $("#cmpBox").classList.remove("hide");
+  $("#cmpChart").innerHTML=chart(xl,R.cmpSum.map(function(s,i){return {label:s.label+(s.days?"":" (no data)"),color:cols[i],vals:s.vals};}));
+  $("#cmpTbl").innerHTML="<thead><tr><th>Season</th><th>Dates</th><th class='n'>Days with data</th><th class='n'>Avg. daily max HI</th><th class='n'>Peak HI</th><th class='n'>Hinga days</th><th class='n'>Hinto days</th><th class='n'>Schools</th></tr></thead><tbody>"+
+    R.cmpSum.map(function(s){return "<tr><td><b>"+esc(s.label)+"</b>"+(s.err?" <small style='color:#c4120f'>"+esc(s.err)+"</small>":"")+"</td><td>"+s.from+" to "+s.to+"</td><td class='n'>"+s.days+"</td><td class='n'>"+(s.avg!=null?s.avg:"--")+"</td><td class='n'>"+(s.peak!=null?s.peak:"--")+"</td><td class='n'>"+s.hinga+"</td><td class='n'>"+s.hinto+"</td><td class='n'>"+s.schools+"</td></tr>";}).join("")+"</tbody>";
+}
+
+/* ---------- downloads ---------- */
+function readingRow(x){return {"Date":x.day,"Time (PH)":tPH(x.ts),"Type":x.kind==="thermometer"?"Thermometer":"Triangulated","School":x.school||"","School ID":x.school_id||"","District":x.district||"","Role":x.role||"","Name":x.name||"","Room":x.room||"","Slot":x.slot||"","Temp °C":x.t!=null?Math.round(x.t*10)/10:"","RH %":x.rh!=null?Math.round(x.rh):"","Heat index °C":x.hi,"4H level":lvName(x.level),"Latitude":x.lat,"Longitude":x.lon,"Accuracy m":x.acc!=null?Math.round(x.acc):"","Details":x.detail||""};}
+function fname(ext){return "ALAB-report_"+R.from+"_to_"+R.to+($("#rDistrict").value?"_"+$("#rDistrict").value.replace(/[^\w-]+/g,"-"):"")+"."+ext;}
+$("#dlXlsx").onclick=function(){
+  if(typeof XLSX==="undefined"){alert("The Excel library did not load. Use the CSV download instead.");return;}
+  var wb=XLSX.utils.book_new(), rows=rowsFiltered(R.rows);
+  var sum=[["ALAB Heat Index Report"],["Period",R.from+" to "+R.to],["District",$("#rDistrict").value||"All districts"],["Readings",R.kind||"Thermometer + triangulated"],["Generated",tPH(Date.now(),{dateStyle:"medium",timeStyle:"short"})+" (Philippine time)"],[]]
+    .concat(R.kpi.map(function(k){return [k[0],k[1],k[2]];}))
+    .concat([[],["4H scale (DM No. 064, s. 2026)"],["Hayo","below 27 °C"],["Hinay","27–32 °C"],["Hinga","33–41 °C"],["Hinto","42 °C and above"]]);
+  var ws=XLSX.utils.aoa_to_sheet(sum); ws["!cols"]=[{wch:30},{wch:22},{wch:50}]; XLSX.utils.book_append_sheet(wb,ws,"Summary");
+  var daily=R.daily.map(function(g){return {"Date":g.day,"School":g.school||"","School ID":g.school_id||"","District":g.district||"","Max heat index °C":g.max,"4H level":lvName(g.level),"Time of max (PH)":tPH(g.at),"Room":g.room,"Thermometer readings":g.nT,"Triangulated readings":g.nA,"Devices":g.nU};});
+  addSheet(wb,daily,"Daily by school",[11,34,10,18,10,9,10,14,11,11,8]);
+  addSheet(wb,R.schools.map(function(s){return {"School":s.school||"","School ID":s.school_id||"","District":s.district||"","Days with data":s.days,"Hinto days":s.hinto,"Hinga days":s.hinga,"Highest HI °C":s.max,"Date of highest":s.maxDay};}),"Schools",[34,10,18,10,10,10,10,12]);
+  var dv=Object.keys(R.div).sort().map(function(d){var v=R.div[d];return {"Date":d,"Division max HI °C":v.max,"4H level":lvName(lvOf(v.max)),"At school":v.school||"","Time (PH)":tPH(v.at)};});
+  addSheet(wb,dv,"Division daily max",[11,12,9,34,10]);
+  if(R.cmpSum) addSheet(wb,R.cmpSum.map(function(s){return {"Season":s.label,"From":s.from,"To":s.to,"Days with data":s.days,"Avg daily max HI °C":s.avg,"Peak HI °C":s.peak,"Hinga days":s.hinga,"Hinto days":s.hinto,"Schools":s.schools};}),"Year comparison",[10,11,11,10,12,10,10,10,8]);
+  addSheet(wb,rows.map(readingRow),"All readings",[11,9,12,30,10,16,14,18,12,7,7,6,9,8,9,10,8,40]);
+  addSheet(wb,users.map(function(u){return {"School":u.school||"","School ID":u.school_id||"","District":u.district||"","Role":u.role||"","Name":u.name||"","Heat index °C":u.hi,"4H level":lvName(u.level),"Temp °C":u.t!=null?Math.round(u.t*10)/10:"","RH %":u.rh!=null?Math.round(u.rh):"","Verified":u.verified?"Yes":"No","Last update (PH)":tPH(u.updated_at,{dateStyle:"short",timeStyle:"short"}),"Status":u.stale?"Inactive":"Active","Latitude":u.lat,"Longitude":u.lon};}),"Live users (now)",[30,10,16,14,18,9,9,7,6,7,16,8,9,10]);
+  XLSX.writeFile(wb,fname("xlsx"));
+};
+function addSheet(wb,rows,name,w){var ws=XLSX.utils.json_to_sheet(rows.length?rows:[{"(no data)":""}]);if(w)ws["!cols"]=w.map(function(x){return {wch:x};});XLSX.utils.book_append_sheet(wb,ws,name);}
+$("#dlCsv").onclick=function(){
+  var rows=rowsFiltered(R.rows).map(readingRow); if(!rows.length){alert("No readings in this range.");return;}
+  var head=Object.keys(rows[0]),q=function(v){return '"'+String(v==null?"":v).replace(/"/g,'""')+'"';};
+  var csv="﻿"+[head.map(q).join(",")].concat(rows.map(function(r){return head.map(function(h){return q(r[h]);}).join(",");})).join("\r\n");
+  var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=fname("csv");document.body.appendChild(a);a.click();a.remove();
+};
+$("#dlPrint").onclick=function(){window.print();};
+
+/* resume a session in this tab */
+try{var s=JSON.parse(sessionStorage.getItem("alab.admin")||"null");if(s&&s.pass){$("#lgRelay").value=s.relay;signIn(s.relay,s.pass,true);}}catch(e){}
+</script>
+</body>
+</html>
