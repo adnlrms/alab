@@ -70,7 +70,7 @@ Install needs HTTPS hosting:
 
 **Decision aid only.** The school head decides the level and coordinates with the SDS for school-level suspension (Sec. 5.2.2). Extreme heat does not automatically result in class suspension (par. 6).
 
-Data: Open-Meteo.com (CC BY 4.0), Iowa Environmental Mesonet, BigDataCloud. Everything is stored on the device only.
+Data: Open-Meteo.com (CC BY 4.0), Iowa Environmental Mesonet, BigDataCloud. Readings stay on the device unless the user turns on **Division live map** sharing (see below).
 
 ## Troubleshooting: "cannot get data"
 1. **Open ALAB from its https link.** Double-clicking `index.html`, or opening it inside a file preview, blocks live data and location. ALAB shows a warning when this happens.
@@ -96,3 +96,34 @@ Why it matters: without the relay, ALAB falls back to the Iowa Environmental Mes
 **What to expect:** iHeatMAP is published mainly during the hot season (about March–June). Off-season, ALAB shows "PAGASA has not published iHeatMAP for this hour" and keeps using ECMWF automatically. Check the status anytime under accuracy bar → **Data sources → PAGASA iHeatMAP (relay)**. The free Cloudflare plan allows 100,000 requests a day, far more than a school division needs.
 
 Data: DOST-PAGASA iHeatMAP (uses ECMWF data). The relay only passes PAGASA's public files through unchanged, with attribution. Map reading: geotiff.js (MIT license, `lib/`).
+
+
+## Division live map and records (optional)
+Teachers and school heads can choose to share their **live location and heat index** with the Schools Division Office while ALAB is open. The SDO sees everyone on a map and keeps **day-to-day records for 3 years** to compare hot seasons, with downloadable reports.
+
+**What is recorded:** only two kinds of readings:
+- **Thermometer**: each classroom reading a user saves (temperature, humidity, heat index, 4H level, room, time slot).
+- **Triangulated**: the app's live decision, at most once every 30 minutes per device, and immediately when the 4H level changes.
+
+**Privacy (Data Privacy Act of 2012):** sharing is off until the user reads the privacy notice in the app and agrees. Data is sent only while ALAB is open on screen, never in the background. Users can stop at any time; **Delete my data** removes their live location and erases their name and location from all past readings. Live locations disappear after 24 hours without activity, and readings older than 3 years are deleted automatically every night. Have the Division Data Protection Officer review the notice (and register the processing if required) before rollout.
+
+**Setup (uses the same Cloudflare Worker as the relay, about 10 minutes, free):**
+1. Cloudflare dashboard → **Storage & Databases → D1 SQL Database → Create**. Name it `alab-db`.
+2. Open your `alab-relay` Worker → **Settings → Bindings → Add → D1 database**. Variable name: `DB`, database: `alab-db`. Save.
+3. **Settings → Variables and Secrets → Add**, type **Secret**:
+   - `ADMIN_PASSCODE`: a long passcode for SDO admins (12+ characters, not shared with teachers).
+   - `APP_CODE`: the **Division join code** teachers type in the app (e.g. `ADN-HEAT-2027`). Change it if it leaks; users are then asked for the new code.
+4. **Settings → Trigger events → Add → Cron trigger**: `0 18 * * *` (2:00 AM Philippine time). This runs the daily clean-up (3-year retention, 24-hour live locations).
+5. **Edit code** → paste the new `pagasa-relay/worker.js` → set `ALLOWED_ORIGIN = "https://adnlrms.github.io"` → **Deploy**. The tables are created automatically on first use.
+6. Check: open `https://alab-relay.<your-subdomain>.workers.dev/?ping=1`. You should see `"livemap":true,"joinCodeSet":true,"adminSet":true`.
+
+**Teachers:** in ALAB, tap the **Live map** chip under the location (or Settings → Division live map → Set up), read the notice, enter the join code, school, school ID, district and role (name is optional), tick the agreement, and tap **Agree & start sharing**. The chip shows *sharing*, *waiting to send* (thermometer readings saved offline are sent when the connection returns), or the problem. The relay link must be set in Settings first; to save every user that step, put your relay link in `index.html` where it says `relay:""`.
+
+**Admins:** open `https://adnlrms.github.io/alab/admin.html`, paste the relay link and the admin passcode. The passcode stays only in that browser tab and is cleared by **Lock** or by closing the tab.
+- **Live map:** markers coloured by 4H level (grey = no update for 10+ minutes), counts per level, filters by district, level or school, and a list sorted by heat index. Refreshes every minute.
+- **Records & reports:** choose a date range (up to 366 days per report) or a preset (Today, Last 7 days, Hot season Mar–May, School year…). You get the daily highest heat index chart, daily maximum per school, and the schools with the most Hinto days. **Compare with past 2 years** overlays the same dates from the two previous years.
+- **Downloads:** **Excel report** (sheets: Summary, Daily by school, Schools, Division daily max, Year comparison, All readings, Live users), **CSV** of all readings, and **Print / save as PDF**.
+
+**Free-plan capacity:** D1 allows 100,000 writes and 5 million reads a day and 5 GB of storage. A teacher with ALAB open all school day writes about 100 live updates a day, so about 800 devices sharing all day fit in the free plan. Three years of records for a division are well under 1 GB.
+
+Map tiles: © OpenStreetMap contributors. Libraries in `lib/`: Leaflet (BSD-2), SheetJS Community Edition (Apache-2.0).
